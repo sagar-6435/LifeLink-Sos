@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config/api';
-import FallDetectionService from '../services/FallDetectionService';
+import ContactPickerModal from '../components/ContactPickerModal';
 
 export default function EmergencyContactsSetup({ navigation, route }) {
   const { userData } = route.params || {};
@@ -24,6 +24,8 @@ export default function EmergencyContactsSetup({ navigation, route }) {
     { name: '', phone: '', relation: '' }
   ]);
   const [loading, setLoading] = useState(false);
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [selectedContactIndex, setSelectedContactIndex] = useState(0);
 
   const updateContact = (index, field, value) => {
     const newContacts = [...contacts];
@@ -35,6 +37,16 @@ export default function EmergencyContactsSetup({ navigation, route }) {
     const newContacts = [...contacts];
     newContacts[index] = { name: '', phone: '', relation: '' };
     setContacts(newContacts);
+  };
+
+  const pickContact = (index) => {
+    setSelectedContactIndex(index);
+    setShowContactPicker(true);
+  };
+
+  const handleContactSelected = (contact) => {
+    updateContact(selectedContactIndex, 'name', contact.name);
+    updateContact(selectedContactIndex, 'phone', contact.phone);
   };
 
   const handleSave = async () => {
@@ -134,11 +146,20 @@ export default function EmergencyContactsSetup({ navigation, route }) {
           <View key={index} style={styles.contactCard}>
             <View style={styles.contactHeader}>
               <Text style={styles.contactNumber}>Contact {index + 1}</Text>
-              {contact.name && (
-                <TouchableOpacity onPress={() => removeContact(index)}>
-                  <MaterialCommunityIcons name="close-circle" size={20} color="#ef4444" />
+              <View style={styles.contactActions}>
+                <TouchableOpacity 
+                  onPress={() => pickContact(index)}
+                  style={styles.pickContactBtn}
+                >
+                  <MaterialCommunityIcons name="account-search" size={20} color="#3b82f6" />
+                  <Text style={styles.pickContactText}>Pick from Contacts</Text>
                 </TouchableOpacity>
-              )}
+                {contact.name && (
+                  <TouchableOpacity onPress={() => removeContact(index)}>
+                    <MaterialCommunityIcons name="close-circle" size={20} color="#ef4444" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -205,6 +226,12 @@ export default function EmergencyContactsSetup({ navigation, route }) {
           <Text style={styles.skipButtonText}>Skip for Now</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ContactPickerModal
+        visible={showContactPicker}
+        onClose={() => setShowContactPicker(false)}
+        onSelectContact={handleContactSelected}
+      />
     </SafeAreaView>
   );
 }
@@ -270,6 +297,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  contactActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pickContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  pickContactText: {
+    fontSize: 12,
+    color: '#3b82f6',
+    fontWeight: '600',
   },
   contactNumber: {
     fontSize: 14,

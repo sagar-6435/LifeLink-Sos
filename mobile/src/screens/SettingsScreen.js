@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  StatusBar
+  StatusBar,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import SettingsService from '../services/SettingsService';
 
 export default function SettingsScreen({ navigation }) {
   const [powerButtonTrigger, setPowerButtonTrigger] = useState(true);
@@ -17,6 +19,48 @@ export default function SettingsScreen({ navigation }) {
   const [alertSound, setAlertSound] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [testMode, setTestMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    const settings = await SettingsService.loadSettings();
+    setPowerButtonTrigger(settings.powerButtonTrigger);
+    setShakeDetection(settings.shakeDetection);
+    setAlertSound(settings.alertSound);
+    setPushNotifications(settings.pushNotifications);
+    setTestMode(settings.testMode);
+    setLoading(false);
+  };
+
+  const handleToggle = async (key, value, setter) => {
+    setter(value);
+    const success = await SettingsService.saveSetting(key, value);
+    
+    if (success) {
+      // Show feedback for important settings
+      if (key === 'shakeDetection') {
+        Alert.alert(
+          value ? 'Shake Detection Enabled' : 'Shake Detection Disabled',
+          value 
+            ? 'Shake your phone vigorously to trigger SOS' 
+            : 'Shake detection has been turned off'
+        );
+      } else if (key === 'testMode') {
+        Alert.alert(
+          value ? 'Test Mode Enabled' : 'Test Mode Disabled',
+          value 
+            ? 'SOS triggers will not send real alerts' 
+            : 'SOS triggers will now send real emergency alerts'
+        );
+      }
+    } else {
+      Alert.alert('Error', 'Failed to save setting. Please try again.');
+      setter(!value); // Revert on error
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -44,7 +88,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Switch
             value={powerButtonTrigger}
-            onValueChange={setPowerButtonTrigger}
+            onValueChange={(value) => handleToggle('powerButtonTrigger', value, setPowerButtonTrigger)}
             trackColor={{ false: '#e2e8f0', true: '#fca5a5' }}
             thumbColor={powerButtonTrigger ? '#ef4444' : '#f1f5f9'}
           />
@@ -60,7 +104,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Switch
             value={shakeDetection}
-            onValueChange={setShakeDetection}
+            onValueChange={(value) => handleToggle('shakeDetection', value, setShakeDetection)}
             trackColor={{ false: '#e2e8f0', true: '#fca5a5' }}
             thumbColor={shakeDetection ? '#ef4444' : '#f1f5f9'}
           />
@@ -79,7 +123,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Switch
             value={alertSound}
-            onValueChange={setAlertSound}
+            onValueChange={(value) => handleToggle('alertSound', value, setAlertSound)}
             trackColor={{ false: '#e2e8f0', true: '#fca5a5' }}
             thumbColor={alertSound ? '#ef4444' : '#f1f5f9'}
           />
@@ -95,7 +139,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Switch
             value={pushNotifications}
-            onValueChange={setPushNotifications}
+            onValueChange={(value) => handleToggle('pushNotifications', value, setPushNotifications)}
             trackColor={{ false: '#e2e8f0', true: '#fca5a5' }}
             thumbColor={pushNotifications ? '#ef4444' : '#f1f5f9'}
           />
@@ -114,7 +158,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Switch
             value={testMode}
-            onValueChange={setTestMode}
+            onValueChange={(value) => handleToggle('testMode', value, setTestMode)}
             trackColor={{ false: '#e2e8f0', true: '#fca5a5' }}
             thumbColor={testMode ? '#ef4444' : '#f1f5f9'}
           />

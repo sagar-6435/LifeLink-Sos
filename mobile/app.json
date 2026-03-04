@@ -19,7 +19,9 @@
       "bundleIdentifier": "com.lifelink.app",
       "icon": "./assets/icon.png",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show ambulance tracking and emergency services nearby."
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show ambulance tracking and emergency services nearby.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location for emergency services and ambulance tracking.",
+        "NSContactsUsageDescription": "This app needs access to your contacts to add emergency contacts."
       }
     },
     "android": {
@@ -36,7 +38,9 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "READ_CONTACTS"
       ]
     },
     "extra": {
@@ -49,7 +53,19 @@
     },
     "runtimeVersion": "1.0.1",
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow LifeLink to access your location for emergency services and ambulance tracking."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow LifeLink to access your contacts to add emergency contacts."
+        }
+      ]
     ]
   }
 }

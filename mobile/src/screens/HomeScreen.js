@@ -16,8 +16,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import { API_URL } from '../config/api';
 import { useFocusEffect } from '@react-navigation/native';
+import SettingsService from '../services/SettingsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -53,12 +55,23 @@ export default function HomeScreen({ navigation }) {
       ])
     );
     pulse.start();
+    
+    // Initialize settings service
+    SettingsService.loadSettings().then(() => {
+      SettingsService.applySettings();
+      SettingsService.setSOSTriggerCallback((trigger) => {
+        console.log('SOS triggered by:', trigger);
+        handleSOSPress();
+      });
+    });
+    
     return () => {
       pulse.stop();
       // Cleanup countdown interval on unmount
       if (countdownInterval.current) {
         clearInterval(countdownInterval.current);
       }
+      SettingsService.cleanup();
     };
   }, []);
 
@@ -146,31 +159,37 @@ export default function HomeScreen({ navigation }) {
 
   const checkLocationStatus = useCallback(async () => {
     try {
-      // Try to get location using browser geolocation API
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setLocation({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            });
-            setLocationStatus('Active');
-          },
-          (error) => {
-            console.log('Location error:', error);
-            setLocationStatus('Inactive');
-          }
-        );
-      } else {
-        setLocationStatus('Unavailable');
+      // Check if location services are enabled
+      const enabled = await Location.hasServicesEnabledAsync();
+      if (!enabled) {
+        setLocationStatus('Disabled');
+        return;
       }
+
+      // Request location permissions
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationStatus('No Permission');
+        return;
+      }
+
+      // Get current location
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+      setLocationStatus('Active');
     } catch (error) {
       console.log('Location check error:', error);
-      setLocationStatus('Inactive');
+      setLocationStatus('Error');
     }
   }, []);
 
-  const handleLocationPress = () => {
+  const handleLocationPress = async () => {
     if (location) {
       // Show location details
       Alert.alert(
@@ -186,23 +205,28 @@ export default function HomeScreen({ navigation }) {
       );
     } else {
       // Request location permission
-      Alert.alert(
-        'Location Access',
-        'Location services are not available. Please enable location access in your device settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Settings',
-            onPress: () => {
-              if (Platform.OS === 'ios') {
-                Linking.openURL('app-settings:');
-              } else {
-                Linking.openSettings();
-              }
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        checkLocationStatus();
+      } else {
+        Alert.alert(
+          'Location Permission Required',
+          'Please enable location access in your device settings to use emergency location features.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => {
+                if (Platform.OS === 'ios') {
+                  Linking.openURL('app-settings:');
+                } else {
+                  Linking.openSettings();
+                }
+              },
             },
-          },
-        ]
-      );
+          ]
+        );
+      }
     }
   };
 
@@ -256,6 +280,19 @@ export default function HomeScreen({ navigation }) {
   };
 
   const triggerEmergency = async () => {
+    // Play alert sound if enabled
+    await SettingsService.playAlertSound();
+    
+    // Check if test mode
+    if (SettingsService.isTestMode()) {
+      Alert.alert(
+        'Test Mode',
+        'This is a test. No real emergency alerts will be sent.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
     // Call emergency services
     makeEmergencyCalls();
     
