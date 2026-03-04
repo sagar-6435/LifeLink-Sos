@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "LifeLink",
+    "slug": "lifelink-app",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "backgroundColor": "#1963eb",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lifelink.app",
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show ambulance tracking and emergency services nearby."
+      }
+    },
+    "android": {
+      "package": "com.lifelink.app",
+      "versionCode": 1,
+      "backgroundColor": "#1963eb",
+      "icon": "./assets/icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1963eb"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "32072272-0029-4707-aaa7-9d34a3aaf391"
+      }
+    },
+    "updates": {
+      "enabled": false
+    },
+    "runtimeVersion": "1.0.1",
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
