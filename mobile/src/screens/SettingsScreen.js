@@ -166,7 +166,7 @@ export default function SettingsScreen({ navigation }) {
 
         {/* App Info */}
         <View style={styles.appInfo}>
-          <Text style={styles.appName}>LifeLink v1.0.1</Text>
+          <Text style={styles.appName}>LifeLink v1.0.2</Text>
           <Text style={styles.appDescription}>Emergency SOS Application</Text>
         </View>
       </ScrollView>
