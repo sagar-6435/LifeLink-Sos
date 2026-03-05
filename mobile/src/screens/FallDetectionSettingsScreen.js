@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTranslation } from '../hooks/useTranslation';
@@ -10,6 +10,7 @@ export default function FallDetectionSettingsScreen({ navigation }) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [sensitivity, setSensitivity] = useState('medium');
   const [emergencyContacts, setEmergencyContacts] = useState([]);
+  const [debugMode, setDebugMode] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -58,7 +59,7 @@ export default function FallDetectionSettingsScreen({ navigation }) {
   const handleTestFallDetection = () => {
     Alert.alert(
       'Test Fall Detection',
-      'This will simulate a fall detection. The fall detected screen will appear with a 5-second countdown.',
+      'This will simulate a fall detection. The fall detected screen will appear with a 10-second countdown.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -75,19 +76,19 @@ export default function FallDetectionSettingsScreen({ navigation }) {
     { 
       id: 'low', 
       label: 'Low', 
-      description: 'Only detects severe falls',
+      description: 'Only extremely severe falls (Recommended)',
       icon: 'speedometer-slow',
     },
     { 
       id: 'medium', 
       label: 'Medium', 
-      description: 'Balanced detection (Recommended)',
+      description: 'Very strong impacts only',
       icon: 'speedometer-medium',
     },
     { 
       id: 'high', 
       label: 'High', 
-      description: 'Detects minor falls (May have false positives)',
+      description: 'Strong falls (May trigger occasionally)',
       icon: 'speedometer',
     },
   ];
@@ -107,7 +108,7 @@ export default function FallDetectionSettingsScreen({ navigation }) {
           <MaterialCommunityIcons name="shield-alert" size={48} color="#ef4444" />
           <Text style={styles.infoTitle}>Stay Protected</Text>
           <Text style={styles.infoText}>
-            Fall detection uses your phone's sensors to detect sudden falls. If a fall is detected and you don't respond within 5 seconds, emergency services will be automatically contacted.
+            Fall detection uses advanced sensors to detect serious falls with strong impact. The system requires a clear free fall pattern followed by significant impact and vertical movement. Only dangerous falls will trigger alerts. If detected and you don't respond within 10 seconds, emergency services will be contacted.
           </Text>
         </View>
 
@@ -187,7 +188,7 @@ export default function FallDetectionSettingsScreen({ navigation }) {
             <MaterialCommunityIcons name="timer-sand" size={24} color="#ef4444" />
             <View style={styles.timerContent}>
               <Text style={styles.timerLabel}>Response Time</Text>
-              <Text style={styles.timerValue}>5 seconds (Fixed)</Text>
+              <Text style={styles.timerValue}>10 seconds (Fixed)</Text>
             </View>
             <View style={styles.timerBadge}>
               <Text style={styles.timerBadgeText}>OPTIMAL</Text>
@@ -244,6 +245,26 @@ export default function FallDetectionSettingsScreen({ navigation }) {
             Test Fall Detection
           </Text>
         </TouchableOpacity>
+
+        <View style={styles.debugSection}>
+          <Text style={styles.debugTitle}>Debug Information</Text>
+          <Text style={styles.debugText}>
+            Status: {isEnabled ? 'Enabled ✓' : 'Disabled ✗'}
+          </Text>
+          <Text style={styles.debugText}>
+            Sensitivity: {sensitivity}
+          </Text>
+          <Text style={styles.debugText}>
+            Emergency Contacts: {emergencyContacts.length}
+          </Text>
+          <Text style={styles.debugNote}>
+            If fall detection is not working:
+            {'\n'}1. Make sure it's enabled above
+            {'\n'}2. Check that motion sensors are available
+            {'\n'}3. Try the test button to verify navigation
+            {'\n'}4. Check console logs for sensor data
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -510,5 +531,36 @@ const styles = StyleSheet.create({
   },
   testBtnTextDisabled: {
     color: '#64748b',
+  },
+  debugSection: {
+    backgroundColor: 'rgba(30, 41, 59, 0.3)',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 24,
+    marginTop: 16,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#94a3b8',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  debugText: {
+    fontSize: 13,
+    color: '#cbd5e1',
+    marginBottom: 6,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  debugNote: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 12,
+    lineHeight: 18,
+    fontStyle: 'italic',
   },
 });

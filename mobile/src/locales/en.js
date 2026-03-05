@@ -223,7 +223,7 @@ export default {
     autoTriggeringIn: 'Auto-triggering emergency in',
     seconds: 'seconds',
     stayProtected: 'Stay Protected',
-    fallDetectionDescription: 'Fall detection uses your phone\'s sensors to detect sudden falls. If a fall is detected and you don\'t respond within 5 seconds, emergency services will be automatically contacted.',
+    fallDetectionDescription: 'Fall detection uses your phone\'s sensors to detect sudden falls. If a fall is detected and you don\'t respond within 10 seconds, emergency services will be automatically contacted.',
     enableFallDetection: 'Enable Fall Detection',
     activeAndMonitoring: 'Active and monitoring',
     currentlyDisabled: 'Currently disabled',

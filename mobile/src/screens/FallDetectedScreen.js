@@ -8,7 +8,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function FallDetectedScreen({ navigation, route }) {
   const { t } = useTranslation();
-  const [countdown, setCountdown] = useState(5);
+  const [countdown, setCountdown] = useState(10);
   const pulseAnim = useState(new Animated.Value(1))[0];
   const shakeAnim = useState(new Animated.Value(0))[0];
 

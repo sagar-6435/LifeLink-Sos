@@ -25,8 +25,10 @@ export const FallDetectionProvider = ({ children }) => {
       setIsEnabled(settings.enabled);
       setSensitivity(settings.sensitivity);
 
+      console.log('Fall detection initialized:', settings);
+
       if (settings.enabled) {
-        FallDetectionService.start();
+        await FallDetectionService.start();
       }
     };
 
@@ -34,6 +36,7 @@ export const FallDetectionProvider = ({ children }) => {
 
     // Set up fall callback
     FallDetectionService.setFallCallback(() => {
+      console.log('Fall detected - navigating to FallDetected screen');
       // Navigate to fall detected screen
       navigation.navigate('FallDetected');
     });
@@ -41,10 +44,11 @@ export const FallDetectionProvider = ({ children }) => {
     // Handle app state changes
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && isEnabled) {
+        console.log('App active - restarting fall detection');
         FallDetectionService.start();
       } else if (nextAppState === 'background') {
         // Keep running in background for fall detection
-        // Note: This requires background permissions
+        console.log('App in background - fall detection continues');
       }
     });
 
@@ -53,6 +57,17 @@ export const FallDetectionProvider = ({ children }) => {
       FallDetectionService.stop();
     };
   }, []);
+
+  // Watch for changes in isEnabled state
+  useEffect(() => {
+    if (isEnabled) {
+      console.log('Fall detection enabled - starting service');
+      FallDetectionService.start();
+    } else {
+      console.log('Fall detection disabled - stopping service');
+      FallDetectionService.stop();
+    }
+  }, [isEnabled]);
 
   const updateSettings = async (enabled, newSensitivity) => {
     await FallDetectionService.saveSettings(enabled, newSensitivity);

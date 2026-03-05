@@ -20,6 +20,7 @@ import * as Location from 'expo-location';
 import { API_URL } from '../config/api';
 import { useFocusEffect } from '@react-navigation/native';
 import SettingsService from '../services/SettingsService';
+import ChatbotButton from '../components/ChatbotButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -465,6 +466,9 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Chatbot Button */}
+      <ChatbotButton />
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>

@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Platform } from 'react-native';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import { FallDetectionProvider } from './src/contexts/FallDetectionContext';
 import SplashScreen from './src/screens/SplashScreen';
 import AuthScreen from './src/screens/AuthScreen';
 // import PatientDashboard from './src/screens/PatientDashboard';
@@ -65,10 +66,11 @@ export default function App() {
   return (
     <LanguageProvider>
       <NavigationContainer>
-        <Stack.Navigator 
-          initialRouteName="Splash"
-          screenOptions={screenOptions}
-        >
+        <FallDetectionProvider>
+          <Stack.Navigator 
+            initialRouteName="Splash"
+            screenOptions={screenOptions}
+          >
           <Stack.Screen 
             name="Splash" 
             component={SplashScreen}
@@ -259,6 +261,7 @@ export default function App() {
             }}
           />
         </Stack.Navigator>
+        </FallDetectionProvider>
       </NavigationContainer>
     </LanguageProvider>
   );
