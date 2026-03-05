@@ -20,12 +20,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/lifelink'
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/verification', require('./routes/verification'));
-app.use('/api/doctors', require('./routes/doctors'));
-app.use('/api/hospitals', require('./routes/hospitals'));
-app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/ambulances', require('./routes/ambulances'));
-app.use('/api/medicines', require('./routes/medicines'));
-app.use('/api/reports', require('./routes/reports'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/emergency', require('./routes/emergency'));
 

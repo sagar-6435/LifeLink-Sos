@@ -15,22 +15,6 @@ export const API_ENDPOINTS = {
   LOGIN: `${API_BASE_URL}/api/auth/login`,
   REGISTER: `${API_BASE_URL}/api/auth/register`,
   
-  // Medicines
-  MEDICINE_DETECT: `${API_BASE_URL}/api/medicines/detect`,
-  MEDICINE_DETECT_BATCH: `${API_BASE_URL}/api/medicines/detect-batch`,
-  MEDICINE_ANALYZE_DOSAGE: `${API_BASE_URL}/api/medicines/analyze-dosage`,
-  MEDICINE_SEARCH: `${API_BASE_URL}/api/medicines/search`,
-  MEDICINE_SUGGESTIONS: `${API_BASE_URL}/api/medicines/suggestions`,
-  
-  // Appointments
-  APPOINTMENTS: `${API_BASE_URL}/api/appointments`,
-  
-  // Doctors
-  DOCTORS: `${API_BASE_URL}/api/doctors`,
-  
-  // Hospitals
-  HOSPITALS: `${API_BASE_URL}/api/hospitals`,
-  
   // Emergency
   EMERGENCY_REQUEST: `${API_BASE_URL}/api/emergency/request`,
   

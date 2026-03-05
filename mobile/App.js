@@ -11,7 +11,6 @@ import AuthScreen from './src/screens/AuthScreen';
 import SuperAdminDashboard from './src/screens/SuperAdminDashboard';
 import EmergencyScreen from './src/screens/EmergencyScreen';
 import AmbulanceTracking from './src/screens/AmbulanceTracking';
-import AppointmentBooking from './src/screens/AppointmentBooking';
 import ProfileScreen from './src/screens/ProfileScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 // Doctor-specific screens removed
@@ -34,6 +33,7 @@ import EmergencyCallScreen from './src/screens/EmergencyCallScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TrackScreen from './src/screens/trackScreen';
+import UserLocationScreen from './src/screens/UserLocationScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -132,14 +132,6 @@ export default function App() {
           <Stack.Screen 
             name="AmbulanceTracking" 
             component={AmbulanceTracking}
-            options={{
-              ...screenOptions,
-              animation: 'slide_from_right',
-            }}
-          />
-          <Stack.Screen 
-            name="AppointmentBooking" 
-            component={AppointmentBooking}
             options={{
               ...screenOptions,
               animation: 'slide_from_right',
@@ -253,6 +245,14 @@ export default function App() {
           <Stack.Screen 
             name="TrackScreen" 
             component={TrackScreen}
+            options={{
+              ...screenOptions,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="UserLocation" 
+            component={UserLocationScreen}
             options={{
               ...screenOptions,
               animation: 'slide_from_right',

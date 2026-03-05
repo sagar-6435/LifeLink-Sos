@@ -65,7 +65,8 @@
         {
           "contactsPermission": "Allow LifeLink to access your contacts to add emergency contacts."
         }
-      ]
+      ],
+      "expo-audio"
     ]
   }
 }

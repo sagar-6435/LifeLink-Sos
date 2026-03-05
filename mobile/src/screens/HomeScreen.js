@@ -190,44 +190,8 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   const handleLocationPress = async () => {
-    if (location) {
-      // Show location details
-      Alert.alert(
-        'Your Location',
-        `Latitude: ${location.latitude.toFixed(6)}\nLongitude: ${location.longitude.toFixed(6)}`,
-        [
-          { text: 'Close', style: 'cancel' },
-          {
-            text: 'Open in Maps',
-            onPress: () => openInMaps(),
-          },
-        ]
-      );
-    } else {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        checkLocationStatus();
-      } else {
-        Alert.alert(
-          'Location Permission Required',
-          'Please enable location access in your device settings to use emergency location features.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Open Settings',
-              onPress: () => {
-                if (Platform.OS === 'ios') {
-                  Linking.openURL('app-settings:');
-                } else {
-                  Linking.openSettings();
-                }
-              },
-            },
-          ]
-        );
-      }
-    }
+    // Navigate to UserLocation screen
+    navigation.navigate('UserLocation');
   };
 
   const openInMaps = () => {

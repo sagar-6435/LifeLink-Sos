@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Accelerometer } from 'expo-sensors';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, AudioSource } from 'expo-audio';
 import { Alert } from 'react-native';
 
 const SETTINGS_KEY = 'app_settings';
@@ -95,13 +95,6 @@ class SettingsService {
     try {
       if (!this.settings.alertSound) return;
       
-      // Set audio mode for emergency alerts
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: false,
-      });
-      
       console.log('Alert sound system ready');
     } catch (error) {
       console.error('Error preparing alert sound:', error);
@@ -112,20 +105,11 @@ class SettingsService {
     if (!this.settings.alertSound) return;
 
     try {
-      // Play a system beep sound
-      // In production, you would load a custom siren sound file
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3' },
-        { shouldPlay: true, volume: 1.0 }
-      );
-      
-      // Unload after playing
-      setTimeout(() => {
-        sound.unloadAsync();
-      }, 3000);
+      // In production, you would use a local audio file
+      // For now, just show an alert as fallback
+      Alert.alert('Emergency Alert', 'SOS Activated!');
     } catch (error) {
       console.error('Error playing alert sound:', error);
-      // Fallback to vibration or system alert
       Alert.alert('Emergency Alert', 'SOS Activated!');
     }
   }
