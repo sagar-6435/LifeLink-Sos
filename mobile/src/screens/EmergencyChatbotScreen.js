@@ -20,6 +20,11 @@ export default function EmergencyChatbotScreen({ navigation }) {
     try {
       setEmergencyData(assessment);
 
+      // Only proceed if user confirmed emergency contact call
+      if (assessment.conversationStage !== 'emergency_contact_confirmed') {
+        return;
+      }
+
       // Get emergency contacts
       const contactsStr = await AsyncStorage.getItem('emergencyContacts');
       const contacts = contactsStr ? JSON.parse(contactsStr) : [];
@@ -38,13 +43,14 @@ export default function EmergencyChatbotScreen({ navigation }) {
 
       // Navigate to emergency call screen
       navigation.replace('EmergencyCall', {
-        situation: assessment.courseOfAction?.summary || 'Emergency detected by chatbot',
+        situation: assessment.courseOfAction?.summary || `Emergency: ${assessment.symptoms.join(', ')}`,
         voiceActivated: false,
         contacts: contacts,
         location: null,
         autoTriggered: true,
         symptoms: assessment.symptoms,
-        severity: assessment.severity
+        severity: assessment.severity,
+        recommendedHospitals: assessment.recommendedHospitals
       });
     } catch (error) {
       console.error('Error handling emergency:', error);

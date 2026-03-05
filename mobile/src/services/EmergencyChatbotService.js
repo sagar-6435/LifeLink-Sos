@@ -1,18 +1,29 @@
 /**
  * Emergency Chatbot Service
  * Provides intelligent course of action based on patient symptoms via chat
+ * Implements severity-based triage with hospital recommendations
  */
 
 import { getCourseOfAction, getEmergencyNumbers, requiresImmediateHospitalization } from './CourseOfActionService';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Symptom keywords for detection
 const SYMPTOM_KEYWORDS = {
-  cardiac: ['chest pain', 'heart attack', 'palpitations', 'irregular heartbeat', 'shortness of breath', 'difficulty breathing'],
+  cardiac: ['chest pain', 'heart attack', 'palpitations', 'irregular heartbeat', 'shortness of breath', 'difficulty breathing', 'heart pain'],
   neurological: ['stroke', 'seizure', 'unconscious', 'dizziness', 'headache', 'confusion', 'loss of consciousness'],
   trauma: ['fracture', 'broken bone', 'accident', 'fall', 'injury', 'bleeding', 'wound', 'sprain', 'dislocation'],
   respiratory: ['choking', 'drowning', 'can\'t breathe', 'asthma', 'wheezing', 'coughing'],
   gastrointestinal: ['severe pain', 'abdominal pain', 'vomiting', 'poisoning', 'overdose'],
   general: ['help', 'emergency', 'urgent', 'severe', 'critical']
+};
+
+// Severity assessment keywords
+const SEVERITY_KEYWORDS = {
+  critical: ['severe', 'critical', 'can\'t breathe', 'unconscious', 'not breathing', 'chest pain', 'stroke', 'choking', 'bleeding heavily'],
+  high: ['moderate', 'intense', 'severe pain', 'difficulty breathing', 'dizziness', 'confusion'],
+  medium: ['mild', 'slight', 'some pain', 'discomfort'],
+  low: ['minor', 'small', 'slight discomfort']
 };
 
 // Chatbot responses
@@ -29,19 +40,44 @@ const CHATBOT_RESPONSES = {
     "Could you describe the severity of your pain or discomfort?",
     "How long have you been experiencing these symptoms?"
   ],
-  
-  critical: [
-    "This sounds like a critical emergency. I'm immediately alerting emergency services.",
-    "Your symptoms indicate a life-threatening situation. Emergency services are being contacted now.",
-    "This requires immediate medical attention. Calling 108 (Ambulance) now."
+
+  severityAssessment: [
+    "On a scale of 1-10, how severe is your pain or discomfort? (1=mild, 10=severe)",
+    "How would you rate your condition? Is it mild, moderate, or severe?",
+    "Is this pain/discomfort mild, moderate, or severe?",
+    "How urgent do you feel this situation is?"
   ],
-  
-  urgent: [
-    "This is an urgent situation. You need immediate medical attention.",
-    "Your symptoms require urgent care. I'm preparing to contact emergency services.",
-    "This needs urgent medical evaluation. Let me help you get to a hospital."
+
+  lowSeverityResponse: [
+    "I understand. Based on your symptoms, this appears to be a low-severity situation. Let me find nearby hospitals that can help you.",
+    "Your symptoms suggest this is manageable. I'll recommend nearby hospitals with appropriate departments.",
+    "This seems like a non-emergency situation. Let me locate nearby healthcare facilities for you."
   ],
-  
+
+  mediumSeverityResponse: [
+    "I see. This is a moderate-severity situation. I'll find nearby hospitals that can provide appropriate care.",
+    "Your symptoms indicate moderate severity. Let me recommend nearby hospitals with the right specializations.",
+    "This requires medical attention. I'll help you find nearby hospitals."
+  ],
+
+  highSeverityResponse: [
+    "This is a high-severity situation. I'm finding nearby hospitals and asking if you'd like me to call your emergency contacts.",
+    "Your symptoms are serious. I'll locate nearby hospitals and can contact your emergency contacts if you'd like.",
+    "This requires urgent medical attention. Let me find nearby hospitals and I can alert your emergency contacts."
+  ],
+
+  criticalResponse: [
+    "This is a CRITICAL emergency! I'm immediately finding nearby hospitals and will contact your emergency contacts.",
+    "Your symptoms indicate a life-threatening situation. I'm locating hospitals and alerting emergency contacts NOW.",
+    "CRITICAL EMERGENCY! Finding nearest hospitals and contacting emergency services immediately."
+  ],
+
+  emergencyContactConfirmation: [
+    "Would you like me to call your emergency contacts now?",
+    "Should I contact your emergency contacts to inform them of your situation?",
+    "Do you want me to call your emergency contacts?"
+  ],
+
   confirmation: [
     "I've understood your situation. Here's what we need to do:",
     "Based on your symptoms, here's the recommended course of action:",
@@ -55,6 +91,11 @@ class EmergencyChatbotService {
     this.detectedSymptoms = [];
     this.severity = null;
     this.courseOfAction = null;
+    this.conversationStage = 'initial'; // initial, symptoms_collected, severity_assessed, hospital_recommended, emergency_contact_confirmed
+    this.userLocation = null;
+    this.recommendedHospitals = [];
+    this.askingSeverity = false;
+    this.askingEmergencyContact = false;
   }
 
   /**
@@ -65,6 +106,9 @@ class EmergencyChatbotService {
     this.detectedSymptoms = [];
     this.severity = null;
     this.courseOfAction = null;
+    this.conversationStage = 'initial';
+    this.askingSeverity = false;
+    this.askingEmergencyContact = false;
     
     const greeting = this.getRandomResponse(CHATBOT_RESPONSES.greeting);
     this.conversationHistory.push({
@@ -74,56 +118,6 @@ class EmergencyChatbotService {
     });
     
     return greeting;
-  }
-
-  /**
-   * Process user message and provide response
-   */
-  async processUserMessage(userMessage) {
-    try {
-      // Add user message to history
-      this.conversationHistory.push({
-        role: 'user',
-        message: userMessage,
-        timestamp: new Date()
-      });
-
-      // Extract symptoms from message
-      const newSymptoms = this.extractSymptoms(userMessage);
-      this.detectedSymptoms = [...new Set([...this.detectedSymptoms, ...newSymptoms])];
-
-      // Generate response
-      let response = '';
-
-      if (this.detectedSymptoms.length === 0) {
-        // No symptoms detected yet
-        response = this.getRandomResponse(CHATBOT_RESPONSES.clarification);
-      } else {
-        // Symptoms detected - provide course of action
-        response = await this.generateCourseOfActionResponse();
-      }
-
-      // Add assistant response to history
-      this.conversationHistory.push({
-        role: 'assistant',
-        message: response,
-        timestamp: new Date()
-      });
-
-      return {
-        message: response,
-        symptoms: this.detectedSymptoms,
-        severity: this.severity,
-        courseOfAction: this.courseOfAction,
-        requiresEmergency: this.severity === 'critical' || this.severity === 'high'
-      };
-    } catch (error) {
-      console.error('Error processing user message:', error);
-      return {
-        message: 'I encountered an error processing your message. Please try again or call 108 immediately.',
-        error: error.message
-      };
-    }
   }
 
   /**
@@ -142,6 +136,216 @@ class EmergencyChatbotService {
     }
 
     return symptoms;
+  }
+
+  /**
+   * Process user message and provide response
+   */
+  async processUserMessage(userMessage) {
+    try {
+      // Add user message to history
+      this.conversationHistory.push({
+        role: 'user',
+        message: userMessage,
+        timestamp: new Date()
+      });
+
+      let response = '';
+
+      // Stage 1: Collect symptoms
+      if (this.conversationStage === 'initial') {
+        const newSymptoms = this.extractSymptoms(userMessage);
+        
+        if (newSymptoms.length === 0) {
+          // No symptoms detected yet
+          response = this.getRandomResponse(CHATBOT_RESPONSES.clarification);
+        } else {
+          // Symptoms detected - move to severity assessment
+          this.detectedSymptoms = [...new Set([...this.detectedSymptoms, ...newSymptoms])];
+          this.conversationStage = 'severity_assessment';
+          this.askingSeverity = true;
+          response = this.getRandomResponse(CHATBOT_RESPONSES.severityAssessment);
+        }
+      }
+      // Stage 2: Assess severity
+      else if (this.conversationStage === 'severity_assessment' && this.askingSeverity) {
+        this.severity = this.assessSeverityFromResponse(userMessage);
+        this.conversationStage = 'hospital_recommended';
+        this.askingSeverity = false;
+
+        // Get user location for hospital recommendations
+        await this.getUserLocation();
+
+        // Generate response based on severity
+        response = await this.generateSeverityBasedResponse();
+      }
+      // Stage 3: Handle emergency contact confirmation
+      else if (this.conversationStage === 'hospital_recommended' && this.askingEmergencyContact) {
+        const wantsEmergencyCall = this.parseYesNoResponse(userMessage);
+        
+        if (wantsEmergencyCall) {
+          this.conversationStage = 'emergency_contact_confirmed';
+          response = "Perfect! I'm preparing to call your emergency contacts now.";
+          // This will trigger the emergency call flow
+        } else {
+          response = "Understood. You can call them manually or I can help you find the nearest hospital. Would you like hospital directions?";
+        }
+      }
+      // Continue conversation
+      else {
+        response = this.getRandomResponse(CHATBOT_RESPONSES.clarification);
+      }
+
+      // Add assistant response to history
+      this.conversationHistory.push({
+        role: 'assistant',
+        message: response,
+        timestamp: new Date()
+      });
+
+      return {
+        message: response,
+        symptoms: this.detectedSymptoms,
+        severity: this.severity,
+        courseOfAction: this.courseOfAction,
+        recommendedHospitals: this.recommendedHospitals,
+        requiresEmergency: this.conversationStage === 'emergency_contact_confirmed' || (this.severity === 'critical'),
+        conversationStage: this.conversationStage
+      };
+    } catch (error) {
+      console.error('Error processing user message:', error);
+      return {
+        message: 'I encountered an error processing your message. Please try again or call 108 immediately.',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Assess severity from user response
+   */
+  assessSeverityFromResponse(response) {
+    const lowerResponse = response.toLowerCase();
+    
+    // Check for critical indicators
+    for (const keyword of SEVERITY_KEYWORDS.critical) {
+      if (lowerResponse.includes(keyword)) {
+        return 'critical';
+      }
+    }
+
+    // Check for high severity
+    if (lowerResponse.includes('9') || lowerResponse.includes('10') || lowerResponse.includes('severe') || lowerResponse.includes('high')) {
+      return 'high';
+    }
+
+    // Check for medium severity
+    if (lowerResponse.includes('5') || lowerResponse.includes('6') || lowerResponse.includes('7') || lowerResponse.includes('8') || lowerResponse.includes('moderate')) {
+      return 'medium';
+    }
+
+    // Default to low
+    return 'low';
+  }
+
+  /**
+   * Parse yes/no response
+   */
+  parseYesNoResponse(response) {
+    const lowerResponse = response.toLowerCase();
+    return lowerResponse.includes('yes') || lowerResponse.includes('yeah') || lowerResponse.includes('ok') || lowerResponse.includes('sure') || lowerResponse.includes('please');
+  }
+
+  /**
+   * Get user location
+   */
+  async getUserLocation() {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        this.userLocation = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude
+        };
+      }
+    } catch (error) {
+      console.error('Error getting user location:', error);
+    }
+  }
+
+  /**
+   * Generate severity-based response with hospital recommendations
+   */
+  async generateSeverityBasedResponse() {
+    let response = '';
+
+    // Add severity-specific message
+    if (this.severity === 'critical') {
+      response += this.getRandomResponse(CHATBOT_RESPONSES.criticalResponse) + '\n\n';
+    } else if (this.severity === 'high') {
+      response += this.getRandomResponse(CHATBOT_RESPONSES.highSeverityResponse) + '\n\n';
+    } else if (this.severity === 'medium') {
+      response += this.getRandomResponse(CHATBOT_RESPONSES.mediumSeverityResponse) + '\n\n';
+    } else {
+      response += this.getRandomResponse(CHATBOT_RESPONSES.lowSeverityResponse) + '\n\n';
+    }
+
+    // Add hospital recommendations if location available
+    if (this.userLocation) {
+      response += await this.getHospitalRecommendationsText();
+    }
+
+    // For high and critical severity, ask about emergency contacts
+    if (this.severity === 'high' || this.severity === 'critical') {
+      response += '\n\n' + this.getRandomResponse(CHATBOT_RESPONSES.emergencyContactConfirmation);
+      this.askingEmergencyContact = true;
+    }
+
+    return response;
+  }
+
+  /**
+   * Get hospital recommendations as formatted text
+   */
+  async getHospitalRecommendationsText() {
+    try {
+      // Get auth token from AsyncStorage
+      const token = await AsyncStorage.getItem('authToken');
+
+      // Call backend API to get hospital recommendations
+      const response = await fetch('http://localhost:3000/api/hospitals/recommend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          situation: this.detectedSymptoms.join(', '),
+          location: this.userLocation,
+          severity: this.severity
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        this.recommendedHospitals = data.hospitals || [];
+
+        let text = '🏥 NEARBY HOSPITALS:\n\n';
+        data.hospitals.slice(0, 3).forEach((hospital, index) => {
+          text += `${index + 1}. ${hospital.name}\n`;
+          text += `   📍 ${hospital.distance.toFixed(1)} km away\n`;
+          text += `   🏷️ ${hospital.specializations.join(', ')}\n`;
+          text += `   ⭐ Rating: ${hospital.rating}/5\n\n`;
+        });
+
+        return text;
+      }
+    } catch (error) {
+      console.error('Error getting hospital recommendations:', error);
+    }
+
+    return '🏥 Finding nearby hospitals...\n';
   }
 
   /**

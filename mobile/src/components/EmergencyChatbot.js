@@ -63,12 +63,12 @@ export default function EmergencyChatbot({ onEmergencyDetected, onClose }) {
       // Update assessment
       setAssessment(response);
 
-      // Check if emergency detected
-      if (response.requiresEmergency && onEmergencyDetected) {
+      // Check if emergency contact confirmation is needed
+      if (response.conversationStage === 'emergency_contact_confirmed' && onEmergencyDetected) {
         setTimeout(() => {
           Alert.alert(
-            '🚨 Emergency Detected',
-            `Severity: ${response.severity.toUpperCase()}\n\nActivating emergency services...`,
+            '🚨 Emergency Confirmed',
+            `Severity: ${response.severity.toUpperCase()}\n\nCalling emergency contacts...`,
             [{ text: 'OK' }]
           );
           onEmergencyDetected(response);
