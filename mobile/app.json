@@ -43,15 +43,10 @@
         "READ_CONTACTS"
       ]
     },
-    "extra": {
-      "eas": {
-        "projectId": "32072272-0029-4707-aaa7-9d34a3aaf391"
-      }
-    },
     "updates": {
-      "enabled": false
+      "enabled": false,
+      "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.2",
     "plugins": [
       "expo-font",
       [
