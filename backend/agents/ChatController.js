@@ -63,6 +63,64 @@ async function triggerEmergencyServices(situation) {
   return results;
 }
 
+async function triggerEmergencyServicesForContacts(situation, emergencyContacts) {
+  const results = { messages: [], calls: [] };
+  const ctx = "Emergency contact of the person in distress. They need immediate assistance.";
+
+  // If no contacts provided, use fallback
+  if (!emergencyContacts || emergencyContacts.length === 0) {
+    console.log('⚠️ No emergency contacts provided, using fallback');
+    return triggerEmergencyServices(situation);
+  }
+
+  // Process all contacts in parallel
+  const contactPromises = emergencyContacts.map(async (contact) => {
+    const phoneNumber = contact.phone || contact.phoneNumber;
+    const name = contact.name || "Emergency Contact";
+    
+    if (!phoneNumber) {
+      console.log(`⚠️ Skipping contact ${name} - no phone number`);
+      return null;
+    }
+
+    const contactResults = { name, phone: phoneNumber, message: null, call: null };
+
+    // Send SMS
+    try {
+      console.log(`\n🚨 [Emergency] Sending SMS to ${name} (${phoneNumber})...`);
+      contactResults.message = await sendSMS(phoneNumber, situation, ctx, name);
+      console.log(`✅ [Emergency] SMS sent to ${name} — SID: ${contactResults.message.messageSid}`);
+    } catch (err) {
+      console.error(`❌ [Emergency] SMS to ${name} failed:`, err.message);
+      contactResults.message = { error: err.message };
+    }
+
+    // Place call
+    try {
+      console.log(`📞 [Emergency] Placing call to ${name} (${phoneNumber})...`);
+      contactResults.call = await triggerCall(phoneNumber, situation, ctx);
+      console.log(`✅ [Emergency] Call placed to ${name} — SID: ${contactResults.call.callSid}`);
+    } catch (err) {
+      console.error(`❌ [Emergency] Call to ${name} failed:`, err.message);
+      contactResults.call = { error: err.message };
+    }
+
+    return contactResults;
+  });
+
+  const contactResults = await Promise.all(contactPromises);
+  
+  // Filter out null results and organize
+  contactResults.filter(r => r !== null).forEach(result => {
+    if (result.message) results.messages.push(result.message);
+    if (result.call) results.calls.push(result.call);
+  });
+
+  console.log(`\n✅ Emergency services triggered for ${contactResults.filter(r => r !== null).length} contacts`);
+  
+  return { ...results, contactResults: contactResults.filter(r => r !== null) };
+}
+
 // ── Language Detection ───────────────────────────────────────────────────────
 export function detectLanguage(text) {
   if (/[\u0C00-\u0C7F]/.test(text)) return { code: "te-IN", name: "Telugu" };
@@ -97,7 +155,7 @@ CRITICAL RULES:
 // ── POST /api/chat ───────────────────────────────────────────────────────────
 export async function chat(req, res) {
     
-  const { message, history = [], emergencyAlreadyTriggered = false } = req.body;
+  const { message, history = [], emergencyAlreadyTriggered = false, emergencyContacts = [] } = req.body;
   if (!message) return res.status(400).json({ error: "No message provided" });
 
   const detectedInputLang = detectLanguage(message);
@@ -114,7 +172,7 @@ export async function chat(req, res) {
     const [reply, emergencyActions] = await Promise.all([
       getChatReply(messages),
       emergencyDetected
-        ? triggerEmergencyServices(buildSituation(message, history))
+        ? triggerEmergencyServicesForContacts(buildSituation(message, history), emergencyContacts)
         : Promise.resolve(null),
     ]);
 
@@ -189,6 +247,123 @@ export async function speak(req, res) {
   } catch (err) {
     console.error("Speak error:", err);
     res.status(500).json({ error: "Speech service unavailable" });
+  }
+}
+
+// ── POST /api/voice-emergency ────────────────────────────────────────────────
+export async function voiceEmergency(req, res) {
+  const { audio, userName, location, contacts } = req.body;
+  
+  if (!audio) return res.status(400).json({ error: "No audio provided" });
+  if (!contacts || contacts.length === 0) {
+    return res.status(400).json({ error: "No emergency contacts provided" });
+  }
+
+  try {
+    // Convert base64 audio to buffer
+    const audioBuffer = Buffer.from(audio, 'base64');
+    
+    // Use Azure Speech-to-Text
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      process.env.AZURE_SPEECH_KEY,
+      process.env.AZURE_SPEECH_REGION
+    );
+    speechConfig.speechRecognitionLanguage = "en-IN";
+    
+    // Create audio config from buffer
+    const pushStream = sdk.AudioInputStream.createPushStream();
+    pushStream.write(audioBuffer);
+    pushStream.close();
+    
+    const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
+    const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+    
+    // Recognize speech
+    const recognizedText = await new Promise((resolve, reject) => {
+      recognizer.recognizeOnceAsync(
+        (result) => {
+          recognizer.close();
+          if (result.reason === sdk.ResultReason.RecognizedSpeech) {
+            resolve(result.text);
+          } else {
+            reject(new Error("Speech not recognized"));
+          }
+        },
+        (err) => {
+          recognizer.close();
+          reject(err);
+        }
+      );
+    });
+
+    console.log(`🎤 Recognized speech: "${recognizedText}"`);
+
+    // Use AI to extract and understand the emergency situation
+    const extractionPrompt = `You are an emergency response AI. A person has activated emergency SOS and said:
+
+"${recognizedText}"
+
+Extract and summarize the emergency situation in 1-2 clear sentences. Include:
+- What happened (injury, accident, medical emergency, etc.)
+- Current condition if mentioned
+- Any immediate dangers
+
+Be concise and factual. This will be read to emergency contacts.`;
+
+    const situation = await getChatReply([
+      { role: "system", content: "You are an emergency response AI that extracts critical information from emergency descriptions." },
+      { role: "user", content: extractionPrompt }
+    ], { maxTokens: 150, temperature: 0.3 });
+
+    console.log(`🚨 Extracted situation: "${situation}"`);
+
+    // Build context for emergency contacts
+    const locationStr = location 
+      ? `Location: ${location.latitude}, ${location.longitude}` 
+      : "Location unavailable";
+    
+    const fullContext = `${userName} has activated emergency SOS. ${situation}. ${locationStr}. Immediate assistance required.`;
+
+    // Trigger calls to all emergency contacts
+    const callResults = await Promise.all(
+      contacts.map(async (contact) => {
+        try {
+          const contactContext = `Emergency contact for ${userName}. Relationship: ${contact.relationship || 'Emergency contact'}. They need immediate help.`;
+          
+          const result = await triggerCall(
+            contact.phone,
+            fullContext,
+            contactContext
+          );
+          
+          console.log(`✅ Call initiated to ${contact.name}: ${result.callSid}`);
+          return { success: true, contact: contact.name, ...result };
+        } catch (error) {
+          console.error(`❌ Failed to call ${contact.name}:`, error.message);
+          return { success: false, contact: contact.name, error: error.message };
+        }
+      })
+    );
+
+    const successCount = callResults.filter(r => r.success).length;
+    
+    console.log(`\n📞 Voice Emergency: ${successCount}/${contacts.length} calls initiated\n`);
+
+    res.json({
+      success: true,
+      recognizedText,
+      situation,
+      callResults,
+      successCount,
+      totalContacts: contacts.length,
+    });
+
+  } catch (error) {
+    console.error("Voice emergency error:", error);
+    res.status(500).json({
+      error: "Failed to process voice emergency",
+      details: error.message,
+    });
   }
 }
 

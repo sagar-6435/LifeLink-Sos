@@ -68,9 +68,15 @@ export async function triggerCall(to, situation, context) {
 
 // ── POST /api/call ───────────────────────────────────────────────────────────
 export async function initiateCall(req, res) {
-  const { to, situation, context } = req.body;
+  let { to, situation, context } = req.body;
 
-  if (!to)        return res.status(400).json({ error: "Missing: to (e.g. +91XXXXXXXXXX)" });
+  // If no 'to' number provided, use fallback from .env
+  if (!to) {
+    to = process.env.EMERGENCY_CONTACT_NUMBER;
+    console.log(`⚠️ No contact number provided, using fallback: ${to}`);
+  }
+
+  if (!to)        return res.status(400).json({ error: "Missing: to (e.g. +91XXXXXXXXXX) and no EMERGENCY_CONTACT_NUMBER in .env" });
   if (!situation) return res.status(400).json({ error: "Missing: situation" });
   if (!process.env.PUBLIC_URL)
     return res.status(500).json({ error: "Set PUBLIC_URL in .env (ngrok URL)" });

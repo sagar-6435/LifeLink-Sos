@@ -7,70 +7,118 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  FlatList,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config/api';
-import ContactPickerModal from '../components/ContactPickerModal';
+import { getDeviceContacts, requestContactsPermission, formatPhoneNumber } from '../utils/contactsUtils';
 
 export default function EmergencyContactsSetup({ navigation, route }) {
   const { userData } = route.params || {};
-  const [contacts, setContacts] = useState([
-    { name: '', phone: '', relation: '' },
-    { name: '', phone: '', relation: '' },
-    { name: '', phone: '', relation: '' },
-    { name: '', phone: '', relation: '' }
-  ]);
+  const [addedContacts, setAddedContacts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [showContactPicker, setShowContactPicker] = useState(false);
-  const [selectedContactIndex, setSelectedContactIndex] = useState(0);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [deviceContacts, setDeviceContacts] = useState([]);
+  const [showDeviceContactsList, setShowDeviceContactsList] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [manualFormData, setManualFormData] = useState({ name: '', phone: '', relation: '' });
+
+  React.useEffect(() => {
+    initializeContacts();
+  }, []);
+
+  const initializeContacts = async () => {
+    try {
+      setIsInitializing(true);
+      const hasPermission = await requestContactsPermission();
+      
+      if (hasPermission) {
+        const allContacts = await getDeviceContacts();
+        setDeviceContacts(allContacts);
+        console.log('✓ Loaded', allContacts.length, 'contacts from device');
+      } else {
+        console.log('⚠️ Contacts permission denied');
+      }
+    } catch (error) {
+      console.error('Error initializing contacts:', error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
 
   const updateContact = (index, field, value) => {
-    const newContacts = [...contacts];
+    const newContacts = [...addedContacts];
     newContacts[index][field] = value;
-    setContacts(newContacts);
+    setAddedContacts(newContacts);
   };
 
   const removeContact = (index) => {
-    const newContacts = [...contacts];
-    newContacts[index] = { name: '', phone: '', relation: '' };
-    setContacts(newContacts);
+    setAddedContacts(addedContacts.filter((_, i) => i !== index));
   };
 
-  const pickContact = (index) => {
-    setSelectedContactIndex(index);
-    setShowContactPicker(true);
+  const handleSelectContact = (contact) => {
+    const newContact = {
+      name: contact.name,
+      phone: formatPhoneNumber(contact.phone),
+      relation: ''
+    };
+    setAddedContacts([...addedContacts, newContact]);
+    setShowDeviceContactsList(false);
+    setSearchQuery('');
   };
 
-  const handleContactSelected = (contact) => {
-    updateContact(selectedContactIndex, 'name', contact.name);
-    updateContact(selectedContactIndex, 'phone', contact.phone);
+  const handleManualSave = () => {
+    if (!manualFormData.name.trim() || !manualFormData.phone.trim()) {
+      Alert.alert('Required', 'Please enter name and phone number');
+      return;
+    }
+
+    setAddedContacts([...addedContacts, {
+      name: manualFormData.name,
+      phone: formatPhoneNumber(manualFormData.phone),
+      relation: manualFormData.relation
+    }]);
+    
+    setShowManualForm(false);
+    setManualFormData({ name: '', phone: '', relation: '' });
+  };
+
+  const getFilteredContacts = () => {
+    if (!searchQuery.trim()) {
+      return deviceContacts;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return deviceContacts.filter(contact =>
+      contact.name.toLowerCase().includes(query) ||
+      contact.phone.includes(query)
+    );
   };
 
   const handleSave = async () => {
-    // Filter out empty contacts
-    const validContacts = contacts.filter(c => c.name && c.phone);
-    
-    console.log('Attempting to save contacts:', validContacts);
-    
-    if (validContacts.length === 0) {
+    if (addedContacts.length === 0) {
       Alert.alert('Required', 'Please add at least one emergency contact');
       return;
     }
 
     setLoading(true);
     try {
-      // Save to local storage (always works, primary storage)
-      await AsyncStorage.setItem('emergencyContacts', JSON.stringify(validContacts));
-      console.log('✓ Emergency contacts saved to AsyncStorage:', validContacts.length, 'contacts');
+      console.log('💾 Saving emergency contacts...');
+      console.log('Contacts to save:', addedContacts);
       
-      // Verify it was saved
-      const saved = await AsyncStorage.getItem('emergencyContacts');
-      console.log('✓ Verified saved data:', saved ? JSON.parse(saved).length : 0, 'contacts');
-
-      // Try to sync with backend (optional, for cloud backup)
+      const contactsJSON = JSON.stringify(addedContacts);
+      await AsyncStorage.setItem('emergencyContacts', contactsJSON);
+      console.log('✅ Emergency contacts saved to AsyncStorage:', addedContacts.length, 'contacts');
+      
+      // Verify contacts were saved
+      const verifyContacts = await AsyncStorage.getItem('emergencyContacts');
+      console.log('✅ Verification - Contacts in AsyncStorage:', verifyContacts);
+      
       try {
         const token = await AsyncStorage.getItem('token');
         if (token) {
@@ -80,23 +128,21 @@ export default function EmergencyContactsSetup({ navigation, route }) {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ emergencyContacts: validContacts }),
+            body: JSON.stringify({ emergencyContacts: addedContacts }),
             timeout: 5000,
           });
-
+          
           if (response.ok) {
-            console.log('✓ Emergency contacts synced with backend');
+            console.log('✅ Contacts synced to backend');
           } else {
-            console.log('⚠ Backend sync failed, using local storage only');
+            console.log('⚠️ Backend sync failed, but contacts saved locally');
           }
         }
       } catch (backendError) {
-        console.log('⚠ Backend unavailable, contacts saved locally only');
+        console.log('⚠️ Backend unavailable, contacts saved locally:', backendError.message);
       }
 
       Alert.alert('Success', 'Emergency contacts saved successfully');
-      
-      // Navigate to HomeScreen for all roles
       navigation.replace('HomeScreen');
     } catch (error) {
       console.error('❌ Save error:', error);
@@ -109,16 +155,13 @@ export default function EmergencyContactsSetup({ navigation, route }) {
   const handleSkip = () => {
     Alert.alert(
       'Skip Setup?',
-      'Emergency contacts are important for your safety. You can add them later in your profile.',
+      'Emergency contacts are important for your safety. You can add them later.',
       [
         { text: 'Go Back', style: 'cancel' },
         {
           text: 'Skip',
           style: 'destructive',
-          onPress: () => {
-            // Navigate to HomeScreen for all roles
-            navigation.replace('HomeScreen');
-          }
+          onPress: () => navigation.replace('HomeScreen')
         }
       ]
     );
@@ -126,112 +169,293 @@ export default function EmergencyContactsSetup({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.topHeader}>
+        <Text style={styles.topTitle}>Emergency Contacts</Text>
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={() => setShowDeviceContactsList(true)}
+        >
+          <Text style={styles.addButtonText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Action Buttons */}
+      <View style={styles.actionButtonsContainer}>
+        <TouchableOpacity 
+          style={styles.importButton}
+          onPress={() => setShowDeviceContactsList(true)}
+        >
+          <Text style={styles.importButtonText}>Import from Phone</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.manualButton}
+          onPress={() => setShowManualForm(true)}
+        >
+          <Text style={styles.manualButtonText}>+ Manual</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchBarContainer}>
+        <MaterialCommunityIcons name="magnify" size={20} color="#cbd5e1" />
+        <TextInput
+          style={styles.searchBar}
+          placeholder="Search contacts..."
+          placeholderTextColor="#cbd5e1"
+          editable={false}
+        />
+      </View>
+
+      {/* Contacts List */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <MaterialCommunityIcons name="account-multiple-plus" size={48} color="#ef4444" />
-          <Text style={styles.title}>Emergency Contacts</Text>
-          <Text style={styles.subtitle}>
-            Add 3-4 family members or friends who will be notified during emergencies
-          </Text>
-        </View>
+        {isInitializing ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#ef4444" />
+            <Text style={styles.loadingText}>Loading your contacts...</Text>
+          </View>
+        ) : (
+          <>
+            {/* Added Contacts Section */}
+            {addedContacts.length > 0 && (
+              <View style={styles.sectionContainer}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="check-circle" size={20} color="#10b981" />
+                  <Text style={styles.sectionTitle}>Added Contacts</Text>
+                  <Text style={styles.contactCount}>
+                    {addedContacts.length}
+                  </Text>
+                </View>
 
-        <View style={styles.infoCard}>
-          <MaterialCommunityIcons name="information" size={20} color="#ef4444" />
-          <Text style={styles.infoText}>
-            These contacts will receive call recordings and alerts when you use the emergency button
-          </Text>
-        </View>
-
-        {contacts.map((contact, index) => (
-          <View key={index} style={styles.contactCard}>
-            <View style={styles.contactHeader}>
-              <Text style={styles.contactNumber}>Contact {index + 1}</Text>
-              <View style={styles.contactActions}>
-                <TouchableOpacity 
-                  onPress={() => pickContact(index)}
-                  style={styles.pickContactBtn}
-                >
-                  <MaterialCommunityIcons name="account-search" size={20} color="#3b82f6" />
-                  <Text style={styles.pickContactText}>Pick from Contacts</Text>
-                </TouchableOpacity>
-                {contact.name && (
-                  <TouchableOpacity onPress={() => removeContact(index)}>
-                    <MaterialCommunityIcons name="close-circle" size={20} color="#ef4444" />
-                  </TouchableOpacity>
-                )}
+                {addedContacts.map((contact, index) => (
+                  <View key={index} style={styles.contactCard}>
+                    <View style={styles.contactCardHeader}>
+                      <View style={styles.contactCardInfo}>
+                        <View style={styles.contactAvatar}>
+                          <Text style={styles.contactAvatarText}>
+                            {contact.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.contactCardText}>
+                          <Text style={styles.contactCardName}>{contact.name}</Text>
+                          <Text style={styles.contactCardPhone}>{contact.phone}</Text>
+                          {contact.relation && (
+                            <Text style={styles.contactCardRelation}>{contact.relation}</Text>
+                          )}
+                        </View>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => removeContact(index)}
+                        style={styles.deleteButton}
+                      >
+                        <MaterialCommunityIcons name="close-circle" size={24} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
               </View>
-            </View>
+            )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Name</Text>
-              <View style={styles.inputContainer}>
+            {/* Empty State */}
+            {addedContacts.length === 0 && (
+              <View style={styles.emptyStateContainer}>
+                <MaterialCommunityIcons name="account-multiple" size={64} color="#cbd5e1" />
+                <Text style={styles.emptyStateText}>No contacts added yet.</Text>
+                <Text style={styles.emptyStateSubtext}>Tap "Import from Phone" or "+ Manual" to add contacts</Text>
+              </View>
+            )}
+
+            {/* Action Buttons */}
+            {addedContacts.length > 0 && (
+              <>
+                <TouchableOpacity
+                  style={[styles.saveButton, loading && styles.buttonDisabled]}
+                  onPress={handleSave}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="check-circle" size={20} color="#fff" />
+                      <Text style={styles.saveButtonText}>Save Emergency Contacts</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={loading}>
+                  <Text style={styles.skipButtonText}>Skip for Now</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </>
+        )}
+      </ScrollView>
+
+      {/* Device Contacts Modal */}
+      <Modal
+        visible={showDeviceContactsList}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setShowDeviceContactsList(false);
+          setSearchQuery('');
+        }}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              onPress={() => {
+                setShowDeviceContactsList(false);
+                setSearchQuery('');
+              }}
+            >
+              <MaterialCommunityIcons name="close" size={24} color="#0f172a" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Select Contact</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <View style={styles.searchContainer}>
+            <MaterialCommunityIcons name="magnify" size={20} color="#94a3b8" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by name or phone..."
+              placeholderTextColor="#94a3b8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <MaterialCommunityIcons name="close-circle" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <FlatList
+            data={getFilteredContacts()}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.contactListItem}
+                onPress={() => handleSelectContact(item)}
+              >
+                <View style={styles.contactListItemContent}>
+                  <View style={styles.contactAvatar}>
+                    <Text style={styles.contactAvatarText}>
+                      {item.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.contactListItemText}>
+                    <Text style={styles.contactListItemName}>{item.name}</Text>
+                    <Text style={styles.contactListItemPhone}>{item.phone}</Text>
+                  </View>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={24} color="#cbd5e1" />
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <MaterialCommunityIcons name="account-off" size={48} color="#cbd5e1" />
+                <Text style={styles.emptyText}>
+                  {searchQuery ? 'No contacts found' : 'No contacts available'}
+                </Text>
+              </View>
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        </SafeAreaView>
+      </Modal>
+
+      {/* Manual Form Modal */}
+      <Modal
+        visible={showManualForm}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setShowManualForm(false);
+          setManualFormData({ name: '', phone: '', relation: '' });
+        }}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity 
+              onPress={() => {
+                setShowManualForm(false);
+                setManualFormData({ name: '', phone: '', relation: '' });
+              }}
+            >
+              <MaterialCommunityIcons name="close" size={24} color="#0f172a" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Add Contact</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView style={styles.formContainer}>
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Name *</Text>
+              <View style={styles.formInputContainer}>
                 <MaterialCommunityIcons name="account-outline" size={20} color="#94a3b8" />
                 <TextInput
-                  style={styles.input}
-                  placeholder="Enter name"
+                  style={styles.formInput}
+                  placeholder="Enter contact name"
                   placeholderTextColor="#94a3b8"
-                  value={contact.name}
-                  onChangeText={(value) => updateContact(index, 'name', value)}
+                  value={manualFormData.name}
+                  onChangeText={(text) => setManualFormData({ ...manualFormData, name: text })}
                 />
               </View>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Phone Number</Text>
-              <View style={styles.inputContainer}>
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Phone Number *</Text>
+              <View style={styles.formInputContainer}>
                 <MaterialCommunityIcons name="phone-outline" size={20} color="#94a3b8" />
                 <TextInput
-                  style={styles.input}
+                  style={styles.formInput}
                   placeholder="+91 XXXXX XXXXX"
                   placeholderTextColor="#94a3b8"
-                  value={contact.phone}
-                  onChangeText={(value) => updateContact(index, 'phone', value)}
+                  value={manualFormData.phone}
+                  onChangeText={(text) => setManualFormData({ ...manualFormData, phone: text })}
                   keyboardType="phone-pad"
                 />
               </View>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Relation</Text>
-              <View style={styles.inputContainer}>
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Relation</Text>
+              <View style={styles.formInputContainer}>
                 <MaterialCommunityIcons name="heart-outline" size={20} color="#94a3b8" />
                 <TextInput
-                  style={styles.input}
+                  style={styles.formInput}
                   placeholder="e.g., Father, Mother, Spouse"
                   placeholderTextColor="#94a3b8"
-                  value={contact.relation}
-                  onChangeText={(value) => updateContact(index, 'relation', value)}
+                  value={manualFormData.relation}
+                  onChangeText={(text) => setManualFormData({ ...manualFormData, relation: text })}
                 />
               </View>
             </View>
-          </View>
-        ))}
 
-        <TouchableOpacity
-          style={[styles.saveButton, loading && styles.buttonDisabled]}
-          onPress={handleSave}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
+            <TouchableOpacity
+              style={styles.formSaveButton}
+              onPress={handleManualSave}
+            >
               <MaterialCommunityIcons name="check-circle" size={20} color="#fff" />
-              <Text style={styles.saveButtonText}>Save Emergency Contacts</Text>
-            </>
-          )}
-        </TouchableOpacity>
+              <Text style={styles.formSaveButtonText}>Add Contact</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={loading}>
-          <Text style={styles.skipButtonText}>Skip for Now</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      <ContactPickerModal
-        visible={showContactPicker}
-        onClose={() => setShowContactPicker(false)}
-        onSelectContact={handleContactSelected}
-      />
+            <TouchableOpacity
+              style={styles.formCancelButton}
+              onPress={() => {
+                setShowManualForm(false);
+                setManualFormData({ name: '', phone: '', relation: '' });
+              }}
+            >
+              <Text style={styles.formCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -241,113 +465,198 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  content: {
-    flex: 1,
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#0f172a',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#dbeafe',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#94a3b8',
-    lineHeight: 18,
-  },
-  contactCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  contactHeader: {
+  topHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
   },
-  contactActions: {
+  topTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  addButton: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  actionButtonsContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 12,
   },
-  pickContactBtn: {
+  importButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
+    justifyContent: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 24,
+    paddingVertical: 12,
+    gap: 8,
   },
-  pickContactText: {
-    fontSize: 12,
-    color: '#3b82f6',
-    fontWeight: '600',
-  },
-  contactNumber: {
+  importButtonText: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#ef4444',
+    fontWeight: '600',
+    color: '#fff',
   },
-  inputGroup: {
-    marginBottom: 12,
+  manualButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#94a3b8',
-    marginBottom: 8,
+  manualButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
   },
-  inputContainer: {
+  searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    gap: 8,
+  },
+  searchBar: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#0f172a',
+  },
+  content: {
+    flex: 1,
     paddingHorizontal: 16,
-    height: 48,
+    paddingVertical: 12,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    flex: 1,
+  },
+  contactCount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10b981',
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
     gap: 12,
   },
-  input: {
-    flex: 1,
-    color: '#0f172a',
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  emptyStateSubtext: {
     fontSize: 14,
+    color: '#cbd5e1',
+  },
+  contactCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  contactCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  contactCardInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  contactAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactAvatarText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  contactCardText: {
+    flex: 1,
+  },
+  contactCardName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  contactCardPhone: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 2,
+  },
+  contactCardRelation: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  deleteButton: {
+    padding: 8,
   },
   saveButton: {
     flexDirection: 'row',
@@ -356,7 +665,8 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: 24,
+    marginBottom: 12,
     gap: 8,
   },
   buttonDisabled: {
@@ -369,10 +679,146 @@ const styles = StyleSheet.create({
   },
   skipButton: {
     alignItems: 'center',
-    marginTop: 16,
     marginBottom: 32,
   },
   skipButtonText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#0f172a',
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  contactListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginVertical: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  contactListItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  contactListItemText: {
+    flex: 1,
+  },
+  contactListItemName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  contactListItemPhone: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  formContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  formInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    height: 48,
+    gap: 12,
+  },
+  formInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0f172a',
+  },
+  formSaveButton: {
+    flexDirection: 'row',
+    backgroundColor: '#ef4444',
+    borderRadius: 12,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    marginBottom: 12,
+    gap: 8,
+  },
+  formSaveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  formCancelButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 32,
+  },
+  formCancelButtonText: {
     fontSize: 14,
     color: '#94a3b8',
     fontWeight: '500',

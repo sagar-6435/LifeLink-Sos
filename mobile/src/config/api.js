@@ -1,14 +1,11 @@
 // API Configuration
-// Backend deployed on Render: https://lifelink-klk2.onrender.com
+// Backend running locally
 
-// Production API (Render)
-const PRODUCTION_API_URL = 'https://lifelink-klk2.onrender.com';
+// Local Development API (direct connection)
+const LOCAL_API_URL = 'http://192.168.137.212:3000';
 
-// Local Development API (for testing with Expo Go)
-const DEVELOPMENT_API_URL = 'http://10.239.103.96:3000';
-
-// Use production URL for APK builds, development URL for Expo Go
-const API_BASE_URL = PRODUCTION_API_URL;
+// Use local URL - AI calling will work when ngrok is properly configured
+const API_BASE_URL = LOCAL_API_URL;
 
 export const API_ENDPOINTS = {
   // Auth
@@ -25,6 +22,5 @@ export const API_ENDPOINTS = {
 export const API_URL = API_BASE_URL;
 export default API_BASE_URL;
 
-// Note: To switch between development and production:
-// - For APK builds: Use PRODUCTION_API_URL (current setting)
-// - For local testing: Change API_BASE_URL to DEVELOPMENT_API_URL
+// Note: AI calling requires ngrok for Twilio callbacks
+// The backend will handle Twilio calls using PUBLIC_URL from .env

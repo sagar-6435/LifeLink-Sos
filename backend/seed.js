@@ -105,28 +105,126 @@ const seedData = async () => {
       }
     ]);
 
-    // Create sample hospitals
+    // Create sample hospitals with comprehensive data
     const hospitals = await Hospital.create([
       {
         name: 'City General Hospital',
         location: { type: 'Point', coordinates: [-73.935242, 40.730610] },
+        phone: '044-12345678',
+        email: 'info@cityhospital.com',
+        address: '123 Main Street, Downtown',
         rating: 4.5,
         beds: 250,
+        availableBeds: 45,
         emergency: true,
+        icu: true,
+        icuBeds: 30,
+        availableICUBeds: 8,
         bloodBank: [
           { type: 'O+', units: 24 },
           { type: 'A-', units: 3 },
-          { type: 'B+', units: 15 }
+          { type: 'B+', units: 15 },
+          { type: 'AB+', units: 5 }
         ],
-        facilities: ['ICU', 'Emergency', 'Surgery', 'Lab']
+        facilities: ['ICU', 'Emergency', 'Surgery', 'Lab', 'Trauma Center', 'Imaging'],
+        specializations: ['Cardiology', 'Neurology', 'Orthopedics', 'Emergency', 'Trauma'],
+        ambulances: 5,
+        averageResponseTime: 8,
+        acceptingEmergencies: true
       },
       {
         name: 'St. Mary Medical Center',
         location: { type: 'Point', coordinates: [-73.945242, 40.735610] },
+        phone: '044-98765432',
+        email: 'info@stmary.com',
+        address: '456 Oak Avenue, Midtown',
         rating: 4.7,
         beds: 180,
+        availableBeds: 32,
         emergency: true,
-        facilities: ['Emergency', 'Cardiology', 'Pediatrics']
+        icu: true,
+        icuBeds: 20,
+        availableICUBeds: 5,
+        bloodBank: [
+          { type: 'O+', units: 18 },
+          { type: 'A+', units: 12 },
+          { type: 'B+', units: 10 }
+        ],
+        facilities: ['Emergency', 'Cardiology', 'Pediatrics', 'Lab', 'ICU'],
+        specializations: ['Cardiology', 'Pediatrics', 'Emergency', 'Pulmonology'],
+        ambulances: 4,
+        averageResponseTime: 6,
+        acceptingEmergencies: true
+      },
+      {
+        name: 'Apollo Clinic',
+        location: { type: 'Point', coordinates: [-73.925242, 40.720610] },
+        phone: '044-55555555',
+        email: 'info@apolloclinic.com',
+        address: '789 Pine Road, Uptown',
+        rating: 4.8,
+        beds: 120,
+        availableBeds: 28,
+        emergency: true,
+        icu: true,
+        icuBeds: 15,
+        availableICUBeds: 4,
+        bloodBank: [
+          { type: 'O+', units: 20 },
+          { type: 'A+', units: 15 }
+        ],
+        facilities: ['Emergency', 'Surgery', 'Lab', 'ICU', 'Orthopedics'],
+        specializations: ['Orthopedics', 'Neurology', 'Emergency', 'Trauma'],
+        ambulances: 3,
+        averageResponseTime: 7,
+        acceptingEmergencies: true
+      },
+      {
+        name: 'Emergency Care Center',
+        location: { type: 'Point', coordinates: [-73.915242, 40.740610] },
+        phone: '044-11111111',
+        email: 'info@emergencycare.com',
+        address: '321 Elm Street, Eastside',
+        rating: 4.3,
+        beds: 100,
+        availableBeds: 22,
+        emergency: true,
+        icu: false,
+        icuBeds: 0,
+        availableICUBeds: 0,
+        bloodBank: [
+          { type: 'O+', units: 15 },
+          { type: 'O-', units: 5 }
+        ],
+        facilities: ['Emergency', 'Lab', 'X-Ray', 'Trauma'],
+        specializations: ['Emergency', 'Trauma', 'Toxicology'],
+        ambulances: 2,
+        averageResponseTime: 5,
+        acceptingEmergencies: true
+      },
+      {
+        name: 'Heart Care Specialty Hospital',
+        location: { type: 'Point', coordinates: [-73.955242, 40.745610] },
+        phone: '044-22222222',
+        email: 'info@heartcare.com',
+        address: '654 Maple Drive, Westside',
+        rating: 4.9,
+        beds: 80,
+        availableBeds: 15,
+        emergency: true,
+        icu: true,
+        icuBeds: 25,
+        availableICUBeds: 6,
+        bloodBank: [
+          { type: 'O+', units: 25 },
+          { type: 'A+', units: 20 },
+          { type: 'B+', units: 15 }
+        ],
+        facilities: ['Emergency', 'Cardiology', 'ICU', 'Cath Lab', 'Surgery'],
+        specializations: ['Cardiology', 'Emergency', 'Pulmonology'],
+        ambulances: 4,
+        averageResponseTime: 9,
+        acceptingEmergencies: true
       }
     ]);
 

@@ -34,13 +34,19 @@ class FallDetectionService {
       const enabled = await AsyncStorage.getItem('fallDetectionEnabled');
       const sensitivity = await AsyncStorage.getItem('fallDetectionSensitivity');
       
-      this.isEnabled = enabled === 'true';
+      // Default to enabled if not set
+      this.isEnabled = enabled === null ? true : enabled === 'true';
       this.sensitivity = sensitivity || 'medium';
+      
+      // Save default if first time
+      if (enabled === null) {
+        await AsyncStorage.setItem('fallDetectionEnabled', 'true');
+      }
       
       return { enabled: this.isEnabled, sensitivity: this.sensitivity };
     } catch (error) {
       console.error('Error loading fall detection settings:', error);
-      return { enabled: false, sensitivity: 'medium' };
+      return { enabled: true, sensitivity: 'medium' };
     }
   }
 

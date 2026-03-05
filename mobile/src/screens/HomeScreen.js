@@ -117,10 +117,22 @@ export default function HomeScreen({ navigation }) {
     try {
       // Always load from local storage first (primary source)
       const localContacts = await AsyncStorage.getItem('emergencyContacts');
+      console.log('📱 Checking AsyncStorage for emergencyContacts...');
+      console.log('Raw value:', localContacts);
+      
       if (localContacts) {
-        const contacts = JSON.parse(localContacts);
-        setEmergencyContacts(contacts);
-        console.log('Loaded emergency contacts from local storage:', contacts.length);
+        try {
+          const contacts = JSON.parse(localContacts);
+          console.log('✅ Loaded emergency contacts from local storage:', contacts.length, 'contacts');
+          console.log('Contacts:', contacts);
+          setEmergencyContacts(contacts);
+        } catch (parseError) {
+          console.error('❌ Error parsing emergency contacts:', parseError);
+          setEmergencyContacts([]);
+        }
+      } else {
+        console.log('⚠️ No emergency contacts found in AsyncStorage');
+        setEmergencyContacts([]);
       }
 
       // Then try to sync with backend (optional)
@@ -137,10 +149,11 @@ export default function HomeScreen({ navigation }) {
           if (response.ok) {
             const data = await response.json();
             if (data.emergencyContacts && data.emergencyContacts.length > 0) {
+              console.log('🔄 Syncing emergency contacts from backend:', data.emergencyContacts.length);
               setEmergencyContacts(data.emergencyContacts);
               // Update local storage with backend data
               await AsyncStorage.setItem('emergencyContacts', JSON.stringify(data.emergencyContacts));
-              console.log('Synced emergency contacts from backend');
+              console.log('✅ Synced emergency contacts from backend');
             }
             if (data.lastEmergencyTest) {
               setLastTestDate(new Date(data.lastEmergencyTest));
@@ -207,7 +220,17 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleSOSPress = async () => {
+    console.log('🆘 SOS Button Pressed');
+    console.log('Current emergencyContacts state:', emergencyContacts);
+    console.log('emergencyContacts.length:', emergencyContacts.length);
+    
     if (emergencyContacts.length === 0) {
+      console.log('❌ No emergency contacts found in state');
+      
+      // Double-check AsyncStorage
+      const storedContacts = await AsyncStorage.getItem('emergencyContacts');
+      console.log('Checking AsyncStorage directly:', storedContacts);
+      
       Alert.alert(
         'No Emergency Contacts',
         'Please add emergency contacts before using SOS.',
@@ -219,16 +242,19 @@ export default function HomeScreen({ navigation }) {
       return;
     }
 
-    // Directly start countdown without confirmation
+    console.log('✅ Emergency contacts found:', emergencyContacts.length);
+
+    // Start 5 second countdown, then automatically activate AI
     setShowCountdown(true);
-    setCountdown(10);
+    setCountdown(5);
     
     countdownInterval.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval.current);
           setShowCountdown(false);
-          triggerEmergency();
+          // Automatically activate AI emergency
+          triggerAIEmergency();
           return 0;
         }
         return prev - 1;
@@ -241,94 +267,60 @@ export default function HomeScreen({ navigation }) {
       clearInterval(countdownInterval.current);
     }
     setShowCountdown(false);
-    setCountdown(10);
+    setCountdown(5);
   };
 
-  const triggerEmergency = async () => {
-    // Play alert sound if enabled
-    await SettingsService.playAlertSound();
-    
-    // Check if test mode
-    if (SettingsService.isTestMode()) {
-      Alert.alert(
-        'Test Mode',
-        'This is a test. No real emergency alerts will be sent.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-    
-    // Call emergency services
-    makeEmergencyCalls();
-    
-    // Send alert to emergency contacts
-    sendEmergencyAlert();
-    
-    // Navigate to emergency screen
-    navigation.navigate('EmergencyCall');
-  };
-
-  const makeEmergencyCalls = () => {
-    // Emergency numbers
-    const emergencyNumbers = {
-      ambulance: '108', // India ambulance
-      police: '100',    // India police
-      fire: '101',      // India fire
-    };
-
-    // Try to call ambulance first
-    Alert.alert(
-      'Emergency Services',
-      'Calling emergency services...',
-      [
-        {
-          text: 'Call Ambulance (108)',
-          onPress: () => Linking.openURL(`tel:${emergencyNumbers.ambulance}`),
-        },
-        {
-          text: 'Call Police (100)',
-          onPress: () => Linking.openURL(`tel:${emergencyNumbers.police}`),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
-  };
-
-  const sendEmergencyAlert = async () => {
+  const triggerAIEmergency = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) {
-        Alert.alert('Error', 'Please login again');
+      // Get location
+      let emergencyLocation = null;
+      try {
+        const position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        emergencyLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+      } catch (locError) {
+        console.log('Could not get location:', locError);
+      }
+
+      // Load emergency contacts
+      const contactsStr = await AsyncStorage.getItem('emergencyContacts');
+      const contacts = contactsStr ? JSON.parse(contactsStr) : [];
+
+      if (contacts.length === 0) {
+        Alert.alert(
+          'No Emergency Contacts',
+          'Please add emergency contacts before using emergency SOS.',
+          [
+            { text: 'Add Contacts', onPress: () => navigation.navigate('EmergencyContactsSetup') },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/emergency/request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          location: location || { latitude: 0, longitude: 0 },
-          type: 'sos',
-          contacts: emergencyContacts,
-        }),
-      });
+      // Get user data
+      const userStr = await AsyncStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : null;
 
-      if (response.ok) {
-        setLastTestDate(new Date());
-        navigation.navigate('EmergencyCall');
-      } else {
-        // Even if backend fails, still navigate to emergency screen
-        navigation.navigate('EmergencyCall');
-      }
+      // Create emergency situation description
+      const situation = `Emergency SOS activated by ${user?.name || 'LifeLink user'}. Location: ${emergencyLocation ? `${emergencyLocation.latitude}, ${emergencyLocation.longitude}` : 'Unknown'}. Immediate assistance required.`;
+
+      // Navigate directly to EmergencyCall screen to activate emergency
+      navigation.navigate('EmergencyCall', {
+        situation: situation,
+        voiceActivated: false,
+        contacts: contacts,
+        location: emergencyLocation,
+        autoTriggered: true
+      });
     } catch (error) {
-      console.error('Error sending emergency alert:', error);
-      // Still navigate to emergency screen
-      navigation.navigate('EmergencyCall');
+      console.error('Error triggering emergency:', error);
+      Alert.alert('Error', 'Could not trigger emergency. Please try again.');
     }
   };
 
@@ -523,7 +515,7 @@ export default function HomeScreen({ navigation }) {
             
             <Text style={styles.countdownTitle}>Emergency SOS Activated</Text>
             <Text style={styles.countdownSubtitle}>
-              Calling emergency services in
+              AI agent will call your emergency contacts in
             </Text>
             
             <View style={styles.countdownCircle}>
@@ -531,9 +523,9 @@ export default function HomeScreen({ navigation }) {
             </View>
             
             <Text style={styles.countdownInfo}>
-              • Calling Ambulance (108){'\n'}
-              • Calling Police (100){'\n'}
-              • Alerting {emergencyContacts.length} emergency contacts
+              • AI will call {emergencyContacts.length} emergency contact(s){'\n'}
+              • AI will explain your emergency situation{'\n'}
+              • Your location will be shared
             </Text>
             
             <TouchableOpacity 

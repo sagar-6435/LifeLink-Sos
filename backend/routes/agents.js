@@ -23,6 +23,13 @@ router.post('/chat', async (req, res) => {
   return chatController.chat(req, res);
 });
 
+router.post('/voice-emergency', async (req, res) => {
+  if (!chatController) {
+    return res.status(503).json({ error: 'Voice emergency service not available' });
+  }
+  return chatController.voiceEmergency(req, res);
+});
+
 router.post('/speak', async (req, res) => {
   if (!chatController) {
     return res.status(503).json({ error: 'Speech service not available' });

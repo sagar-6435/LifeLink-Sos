@@ -11,8 +11,10 @@ import {
   Platform,
   Animated,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config/api';
 
 export default function ChatbotButton() {
@@ -71,6 +73,10 @@ export default function ChatbotButton() {
     setIsLoading(true);
 
     try {
+      // Load emergency contacts from AsyncStorage
+      const contactsStr = await AsyncStorage.getItem('emergencyContacts');
+      const emergencyContacts = contactsStr ? JSON.parse(contactsStr) : [];
+      
       // Call the AI agent API
       const response = await fetch(`${API_URL}/api/agents/chat`, {
         method: 'POST',
@@ -80,6 +86,7 @@ export default function ChatbotButton() {
         body: JSON.stringify({
           message: currentInput,
           history: newHistory,
+          emergencyContacts: emergencyContacts,
         }),
       });
 
@@ -108,7 +115,7 @@ export default function ChatbotButton() {
         setTimeout(() => {
           Alert.alert(
             'Emergency Alert Triggered',
-            'Emergency services have been notified. Help is on the way.',
+            `Emergency services have been notified. Calling ${emergencyContacts.length} emergency contact(s).`,
             [{ text: 'OK' }]
           );
         }, 500);
@@ -297,7 +304,7 @@ export default function ChatbotButton() {
 const styles = StyleSheet.create({
   floatingButton: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 90,
     right: 20,
     zIndex: 1000,
   },

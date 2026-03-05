@@ -14,15 +14,19 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config/api';
 import * as Location from 'expo-location';
+import { getAddressFromCoordinates } from '../utils/locationUtils';
 
-export default function EmergencyCallScreen({ navigation }) {
+export default function EmergencyCallScreen({ navigation, route }) {
+  const { situation: voiceSituation, voiceActivated, activateChatbot } = route?.params || {};
   const [callStatus, setCallStatus] = useState('initiating'); // initiating, calling, completed
   const [timer, setTimer] = useState(0);
   const [emergencyId, setEmergencyId] = useState(null);
   const [emergencyNumbers, setEmergencyNumbers] = useState([]);
   const [aiCallStatus, setAiCallStatus] = useState([]); // Track AI call status for each contact
+  const [locationAddress, setLocationAddress] = useState('Getting location...');
+  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
   const [callSequence, setCallSequence] = useState([
-    { name: 'Emergency Services', status: 'pending', icon: 'phone-alert' },
+    { name: 'Preparing Emergency', status: 'pending', icon: 'shield-alert' },
     { name: 'AI Calling Contacts', status: 'pending', icon: 'robot' },
     { name: 'SMS Alerts', status: 'pending', icon: 'message-alert' }
   ]);
@@ -44,6 +48,13 @@ export default function EmergencyCallScreen({ navigation }) {
         }),
       ])
     ).start();
+
+    // If chatbot should be auto-activated, show voice assistant
+    if (activateChatbot) {
+      setTimeout(() => {
+        setShowVoiceAssistant(true);
+      }, 2000);
+    }
 
     // Initialize emergency call
     initiateEmergencyCall();
@@ -74,9 +85,14 @@ export default function EmergencyCallScreen({ navigation }) {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
+          
+          // Get readable address
+          const address = await getAddressFromCoordinates(location.latitude, location.longitude);
+          setLocationAddress(address);
         }
       } catch (locError) {
         console.log('Could not get location:', locError);
+        setLocationAddress('Location unavailable');
       }
 
       // Load emergency numbers configured by admin
@@ -122,26 +138,18 @@ export default function EmergencyCallScreen({ navigation }) {
 
       setEmergencyId(emergencyIdValue);
 
-      // Step 1: Call emergency services
-      updateCallSequenceStatus('Emergency Services', 'calling');
-      numbersToCall.forEach((service, index) => {
-        setTimeout(() => {
-          console.log(`Calling ${service.name}: ${service.number}`);
-          Linking.openURL(`tel:${service.number}`).catch(err => {
-            console.error(`Failed to call ${service.name}:`, err);
-          });
-        }, index * 2000);
-      });
-
+      // Step 1: Preparing
+      updateCallSequenceStatus('Preparing Emergency', 'calling');
+      
       setTimeout(() => {
-        updateCallSequenceStatus('Emergency Services', 'completed');
-      }, numbersToCall.length * 2000);
+        updateCallSequenceStatus('Preparing Emergency', 'completed');
+      }, 1000);
 
-      // Step 2: Use AI to call emergency contacts simultaneously
+      // Step 2: Use AI to call emergency contacts immediately
       setTimeout(async () => {
         updateCallSequenceStatus('AI Calling Contacts', 'calling');
         await makeAICallsToContacts(user, location);
-      }, (numbersToCall.length * 2000) + 1000);
+      }, 1500);
 
       // Step 3: Send SMS alerts
       setTimeout(async () => {
@@ -168,28 +176,92 @@ export default function EmergencyCallScreen({ navigation }) {
       }
 
       if (contacts.length === 0) {
-        console.log('No emergency contacts found');
+        console.log('⚠️ No emergency contacts found in app, using fallback number from backend');
+        
+        // Call backend which will use EMERGENCY_CONTACT_NUMBER from .env
+        try {
+          const situation = voiceSituation || `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${location.latitude}, ${location.longitude}. Immediate assistance required.`;
+          
+          const response = await fetch(`${API_URL}/api/agents/call`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: null, // Backend will use EMERGENCY_CONTACT_NUMBER
+              situation,
+              context: 'Emergency contact - user has no contacts configured in app'
+            }),
+          });
+
+          const responseData = await response.json();
+          
+          if (response.ok) {
+            console.log('✅ Fallback emergency call initiated:', responseData.callSid);
+            Alert.alert(
+              'Emergency Call Initiated',
+              'Calling emergency contact. Please add your own emergency contacts in settings.',
+              [{ text: 'OK' }]
+            );
+          } else {
+            console.error('Fallback call error:', responseData);
+            throw new Error(responseData.error || 'Failed to initiate fallback call');
+          }
+        } catch (error) {
+          console.error('Failed to call fallback number:', error.message);
+          Alert.alert(
+            'Call Error',
+            'Could not initiate emergency call. Please ensure you have added emergency contacts.',
+            [{ text: 'OK' }]
+          );
+        }
+        
         updateCallSequenceStatus('AI Calling Contacts', 'completed');
         return;
       }
 
-      // Build situation description
-      const situation = `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${location.latitude}, ${location.longitude}. Immediate assistance required.`;
-      const context = 'Emergency contact who needs to provide immediate assistance';
+      // Limit to 3 emergency contacts for simultaneous calling
+      const contactsToCall = contacts.slice(0, 3);
+      console.log(`Calling ${contactsToCall.length} emergency contacts simultaneously (max 3)`);
 
-      // Initialize call status tracking
-      const initialStatus = contacts.map(contact => ({
+      // Build situation description
+      const situation = voiceSituation || `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${locationAddress}. Immediate assistance required.`;
+      const context = voiceActivated 
+        ? `${user?.name || 'User'} activated voice emergency and described their situation as: "${voiceSituation}". Please listen carefully and provide immediate assistance.`
+        : 'Emergency contact who needs to provide immediate assistance';
+
+      // Initialize call status tracking for up to 3 contacts
+      const initialStatus = contactsToCall.map(contact => ({
         name: contact.name,
         phone: contact.phone,
+        relation: contact.relation || 'Emergency Contact',
         status: 'initiating',
         callSid: null
       }));
       setAiCallStatus(initialStatus);
 
-      // Make AI calls to all contacts simultaneously
-      const callPromises = contacts.map(async (contact, index) => {
+      // Make AI calls to all contacts SIMULTANEOUSLY (not sequentially)
+      const callPromises = contactsToCall.map(async (contact, index) => {
         try {
-          console.log(`Initiating AI call to ${contact.name} (${contact.phone})...`);
+          // Ensure phone number is in E.164 format
+          let phoneNumber = contact.phone;
+          
+          // Remove all non-digit characters
+          const cleaned = phoneNumber.replace(/\D/g, '');
+          
+          // Format to E.164 format
+          if (cleaned.length === 10) {
+            // Indian 10-digit number
+            phoneNumber = `+91${cleaned}`;
+          } else if (cleaned.length === 12 && cleaned.startsWith('91')) {
+            // Indian number with country code
+            phoneNumber = `+${cleaned}`;
+          } else if (!phoneNumber.startsWith('+')) {
+            // Add + if missing
+            phoneNumber = `+${cleaned}`;
+          }
+          
+          console.log(`[${index + 1}/3] Initiating AI call to ${contact.name} (${phoneNumber})...`);
           
           // Update status to calling
           setAiCallStatus(prev => prev.map((item, i) => 
@@ -202,27 +274,29 @@ export default function EmergencyCallScreen({ navigation }) {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              to: contact.phone,
+              to: phoneNumber,
               situation,
-              context: `${context}. Contact name: ${contact.name}. Relationship: ${contact.relationship || 'Emergency contact'}`
+              context: `${context}. Contact name: ${contact.name}. Relationship: ${contact.relation || 'Emergency contact'}. This is an automated AI call explaining an emergency situation.`
             }),
           });
 
+          const responseData = await response.json();
+          
           if (!response.ok) {
-            throw new Error(`Failed to call ${contact.name}`);
+            console.error(`API Error for ${contact.name}:`, responseData);
+            throw new Error(responseData.error || `Failed to call ${contact.name}`);
           }
 
-          const data = await response.json();
-          console.log(`AI call initiated to ${contact.name}:`, data.callSid);
+          console.log(`✅ AI call initiated to ${contact.name}:`, responseData.callSid);
 
           // Update status to connected
           setAiCallStatus(prev => prev.map((item, i) => 
-            i === index ? { ...item, status: 'connected', callSid: data.callSid } : item
+            i === index ? { ...item, status: 'connected', callSid: responseData.callSid } : item
           ));
 
-          return { success: true, contact: contact.name, callSid: data.callSid };
+          return { success: true, contact: contact.name, callSid: responseData.callSid };
         } catch (error) {
-          console.error(`Failed to call ${contact.name}:`, error);
+          console.error(`❌ Failed to call ${contact.name}:`, error.message);
           
           // Update status to failed
           setAiCallStatus(prev => prev.map((item, i) => 
@@ -233,34 +307,40 @@ export default function EmergencyCallScreen({ navigation }) {
         }
       });
 
-      // Wait for all calls to complete
+      // Wait for all 3 calls to complete simultaneously
       const results = await Promise.all(callPromises);
       
       const successCount = results.filter(r => r.success).length;
       const failedCount = results.filter(r => !r.success).length;
 
-      console.log(`AI Calls completed: ${successCount} successful, ${failedCount} failed`);
+      console.log(`🎯 AI Calls completed: ${successCount} successful, ${failedCount} failed out of ${contactsToCall.length}`);
       
       updateCallSequenceStatus('AI Calling Contacts', 'completed');
 
       // Show summary alert
       setTimeout(() => {
+        const message = successCount === contactsToCall.length
+          ? `Successfully called all ${successCount} emergency contacts simultaneously!\n\nAI agents are now speaking with your contacts to inform them of the emergency and your location.`
+          : `Called ${successCount} of ${contactsToCall.length} emergency contacts.\n\nAI agents are speaking with your contacts to inform them of the emergency.`;
+        
         Alert.alert(
-          'AI Calls Initiated',
-          `Successfully called ${successCount} of ${contacts.length} emergency contacts.\n\nAI agents are now speaking with your contacts to inform them of the emergency.`,
+          '📞 AI Calls Initiated',
+          message,
           [{ text: 'OK' }]
         );
       }, 1000);
+
+      // If more than 3 contacts, notify user about remaining contacts
+      if (contacts.length > 3) {
+        console.log(`⚠️ ${contacts.length - 3} additional emergency contacts not called (max 3 simultaneous calls)`);
+      }
 
     } catch (error) {
       console.error('Failed to make AI calls:', error);
       updateCallSequenceStatus('AI Calling Contacts', 'failed');
       
-      Alert.alert(
-        'AI Calling Failed',
-        'Could not initiate AI calls. Please ensure the backend server is running and configured properly.',
-        [{ text: 'OK' }]
-      );
+      // Don't show alert for AI calling failure - it's optional
+      console.log('AI calling service unavailable - continuing with manual calls');
     }
   };
 
@@ -278,7 +358,7 @@ export default function EmergencyCallScreen({ navigation }) {
         return;
       }
 
-      const situation = `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${location.latitude}, ${location.longitude}. Immediate assistance required.`;
+      const situation = `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${locationAddress}. Immediate assistance required.`;
       const context = 'Emergency contact who needs to provide immediate assistance';
 
       // Prepare recipients for bulk SMS
@@ -312,6 +392,8 @@ export default function EmergencyCallScreen({ navigation }) {
     } catch (error) {
       console.error('Failed to send SMS alerts:', error);
       updateCallSequenceStatus('SMS Alerts', 'failed');
+      // Don't show alert - SMS is optional, manual calling still works
+      console.log('SMS service unavailable - continuing with manual calls');
     }
   };
 
@@ -355,11 +437,19 @@ export default function EmergencyCallScreen({ navigation }) {
 
               setCallStatus('completed');
               setTimeout(() => {
-                navigation.goBack();
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('HomeScreen');
+                }
               }, 2000);
             } catch (error) {
               console.log('Error ending call:', error);
-              navigation.goBack();
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('HomeScreen');
+              }
             }
           }
         }
@@ -448,31 +538,49 @@ export default function EmergencyCallScreen({ navigation }) {
             {/* Show individual AI call status */}
             {aiCallStatus.length > 0 && (
               <View style={styles.aiCallsSection}>
-                <Text style={styles.sectionLabel}>AI Calls to Contacts:</Text>
+                <Text style={styles.sectionLabel}>
+                  🤖 AI Calling {aiCallStatus.length} Emergency Contact{aiCallStatus.length !== 1 ? 's' : ''} (Simultaneously)
+                </Text>
                 {aiCallStatus.map((call, index) => (
                   <View key={index} style={styles.aiCallRow}>
-                    <MaterialCommunityIcons 
-                      name={
-                        call.status === 'initiating' ? 'clock-outline' :
-                        call.status === 'calling' ? 'robot' :
-                        call.status === 'connected' ? 'phone-check' :
-                        'alert-circle'
-                      }
-                      size={16} 
-                      color={
-                        call.status === 'initiating' ? '#64748b' :
-                        call.status === 'calling' ? '#3b82f6' :
-                        call.status === 'connected' ? '#10b981' :
-                        '#ef4444'
-                      }
-                    />
-                    <Text style={styles.aiCallText}>
-                      {call.name} ({call.phone})
-                      {call.status === 'initiating' && ' - Initiating...'}
-                      {call.status === 'calling' && ' - Calling...'}
-                      {call.status === 'connected' && ' - AI Speaking'}
-                      {call.status === 'failed' && ' - Failed'}
-                    </Text>
+                    <View style={styles.aiCallNumber}>
+                      <Text style={styles.aiCallNumberText}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.aiCallInfo}>
+                      <Text style={styles.aiCallName}>{call.name}</Text>
+                      <Text style={styles.aiCallPhone}>{call.phone}</Text>
+                      {call.relation && (
+                        <Text style={styles.aiCallRelation}>{call.relation}</Text>
+                      )}
+                    </View>
+                    <View style={styles.aiCallStatusContainer}>
+                      <MaterialCommunityIcons 
+                        name={
+                          call.status === 'initiating' ? 'clock-outline' :
+                          call.status === 'calling' ? 'phone-in-talk' :
+                          call.status === 'connected' ? 'phone-check' :
+                          'alert-circle'
+                        }
+                        size={18} 
+                        color={
+                          call.status === 'initiating' ? '#64748b' :
+                          call.status === 'calling' ? '#3b82f6' :
+                          call.status === 'connected' ? '#10b981' :
+                          '#ef4444'
+                        }
+                      />
+                      <Text style={[
+                        styles.aiCallStatus,
+                        call.status === 'calling' && styles.aiCallStatusCalling,
+                        call.status === 'connected' && styles.aiCallStatusConnected,
+                        call.status === 'failed' && styles.aiCallStatusFailed
+                      ]}>
+                        {call.status === 'initiating' && 'Initiating'}
+                        {call.status === 'calling' && 'Calling'}
+                        {call.status === 'connected' && 'Speaking'}
+                        {call.status === 'failed' && 'Failed'}
+                      </Text>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -503,9 +611,35 @@ export default function EmergencyCallScreen({ navigation }) {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          AI agents are calling your emergency contacts simultaneously to save time
+          AI agents are calling up to 3 emergency contacts simultaneously to save time
         </Text>
       </View>
+
+      {/* Voice Assistant Modal */}
+      {showVoiceAssistant && (
+        <View style={styles.voiceAssistantOverlay}>
+          <View style={styles.voiceAssistantCard}>
+            <TouchableOpacity 
+              style={styles.closeVoiceAssistant}
+              onPress={() => setShowVoiceAssistant(false)}
+            >
+              <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+            
+            <MaterialCommunityIcons name="robot" size={48} color="#3b82f6" />
+            <Text style={styles.voiceAssistantTitle}>AI Assistant Active</Text>
+            <Text style={styles.voiceAssistantSubtitle}>Speaking with your emergency contacts</Text>
+            
+            <View style={styles.voiceIndicator}>
+              <View style={[styles.voiceBar, { height: '40%' }]} />
+              <View style={[styles.voiceBar, { height: '60%' }]} />
+              <View style={[styles.voiceBar, { height: '80%' }]} />
+              <View style={[styles.voiceBar, { height: '60%' }]} />
+              <View style={[styles.voiceBar, { height: '40%' }]} />
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -675,16 +809,130 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginTop: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3b82f6',
   },
   aiCallRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginVertical: 4,
+    backgroundColor: '#fff',
+    borderRadius: 6,
+  },
+  aiCallNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiCallNumberText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  aiCallInfo: {
+    flex: 1,
+  },
+  aiCallName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  aiCallPhone: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  aiCallRelation: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginTop: 1,
+    fontStyle: 'italic',
+  },
+  aiCallStatusContainer: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  aiCallStatus: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  aiCallStatusCalling: {
+    color: '#3b82f6',
+  },
+  aiCallStatusConnected: {
+    color: '#10b981',
+  },
+  aiCallStatusFailed: {
+    color: '#ef4444',
   },
   aiCallText: {
     fontSize: 12,
     color: '#475569',
     flex: 1,
+  },
+  voiceAssistantOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  voiceAssistantCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    gap: 16,
+    width: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  closeVoiceAssistant: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceAssistantTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  voiceAssistantSubtitle: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  voiceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+    height: 60,
+    marginTop: 12,
+  },
+  voiceBar: {
+    width: 4,
+    backgroundColor: '#3b82f6',
+    borderRadius: 2,
   },
 });

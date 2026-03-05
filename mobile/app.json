@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "LifeLink",
-    "slug": "lifelink-app",
+    "slug": "lifelink-app-dev",
     "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
@@ -21,12 +21,13 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show ambulance tracking and emergency services nearby.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location for emergency services and ambulance tracking.",
-        "NSContactsUsageDescription": "This app needs access to your contacts to add emergency contacts."
+        "NSContactsUsageDescription": "This app needs access to your contacts to add emergency contacts.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record emergency voice descriptions."
       }
     },
     "android": {
       "package": "com.lifelink.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "backgroundColor": "#1963eb",
       "icon": "./assets/icon.png",
       "adaptiveIcon": {
@@ -66,10 +67,8 @@
       "expo-audio",
       "expo-asset"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "32072272-0029-4707-aaa7-9d34a3aaf391"
-      }
+    "updates": {
+      "enabled": false
     }
   }
 }

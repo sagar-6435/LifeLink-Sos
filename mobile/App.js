@@ -35,6 +35,10 @@ import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TrackScreen from './src/screens/trackScreen';
 import UserLocationScreen from './src/screens/UserLocationScreen';
+import TextEmergencyScreen from './src/screens/TextEmergencyScreen';
+import EmergencyTrackScreen from './src/screens/EmergencyTrackScreen';
+import VoiceEmergencyScreen from './src/screens/VoiceEmergencyScreen';
+import EmergencyChatbotScreen from './src/screens/EmergencyChatbotScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -120,6 +124,15 @@ export default function App() {
             options={{
               ...modalScreenOptions,
               animation: 'slide_from_bottom',
+            }}
+          />
+          <Stack.Screen 
+            name="TextEmergency" 
+            component={TextEmergencyScreen}
+            options={{
+              ...modalScreenOptions,
+              animation: 'slide_from_bottom',
+              gestureEnabled: false,
             }}
           />
           <Stack.Screen 
@@ -246,7 +259,7 @@ export default function App() {
           />
           <Stack.Screen 
             name="TrackScreen" 
-            component={TrackScreen}
+            component={EmergencyTrackScreen}
             options={{
               ...screenOptions,
               animation: 'slide_from_right',
@@ -258,6 +271,24 @@ export default function App() {
             options={{
               ...screenOptions,
               animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="VoiceEmergency" 
+            component={VoiceEmergencyScreen}
+            options={{
+              ...modalScreenOptions,
+              animation: 'slide_from_bottom',
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen 
+            name="EmergencyChatbot" 
+            component={EmergencyChatbotScreen}
+            options={{
+              ...modalScreenOptions,
+              animation: 'slide_from_bottom',
+              gestureEnabled: false,
             }}
           />
         </Stack.Navigator>

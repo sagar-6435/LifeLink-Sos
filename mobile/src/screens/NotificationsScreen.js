@@ -164,6 +164,49 @@ export default function NotificationsScreen({ navigation }) {
           ))
         )}
       </ScrollView>
+
+      {/* Bottom Navigation */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('Home')}
+        >
+          <MaterialCommunityIcons name="home-outline" size={24} color="#94a3b8" />
+          <Text style={styles.navText}>Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('EmergencyContactsSetup')}
+        >
+          <MaterialCommunityIcons name="account-group" size={24} color="#94a3b8" />
+          <Text style={styles.navText}>Contacts</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('TrackScreen')}
+        >
+          <MaterialCommunityIcons name="map-marker" size={24} color="#94a3b8" />
+          <Text style={styles.navText}>Track</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <MaterialCommunityIcons name="account-outline" size={24} color="#94a3b8" />
+          <Text style={styles.navText}>Profile</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('Settings')}
+        >
+          <MaterialCommunityIcons name="cog-outline" size={24} color="#94a3b8" />
+          <Text style={styles.navText}>Settings</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -278,5 +321,23 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingBottom: 8,
+  },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 4,
+  },
+  navText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '500',
   },
 });
