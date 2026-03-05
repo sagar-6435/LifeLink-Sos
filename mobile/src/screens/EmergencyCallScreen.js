@@ -6,22 +6,25 @@ import {
   StyleSheet,
   Alert,
   Linking,
-  Animated
+  Animated,
+  ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../config/api';
+import * as Location from 'expo-location';
 
 export default function EmergencyCallScreen({ navigation }) {
-  const [callStatus, setCallStatus] = useState('initiating'); // initiating, recording, completed
+  const [callStatus, setCallStatus] = useState('initiating'); // initiating, calling, completed
   const [timer, setTimer] = useState(0);
   const [emergencyId, setEmergencyId] = useState(null);
   const [emergencyNumbers, setEmergencyNumbers] = useState([]);
+  const [aiCallStatus, setAiCallStatus] = useState([]); // Track AI call status for each contact
   const [callSequence, setCallSequence] = useState([
     { name: 'Emergency Services', status: 'pending', icon: 'phone-alert' },
-    { name: 'Emergency Contacts', status: 'pending', icon: 'account-multiple' },
-    { name: 'Bot Recording', status: 'active', icon: 'record-circle' }
+    { name: 'AI Calling Contacts', status: 'pending', icon: 'robot' },
+    { name: 'SMS Alerts', status: 'pending', icon: 'message-alert' }
   ]);
   const pulseAnim = useState(new Animated.Value(1))[0];
 
@@ -59,18 +62,33 @@ export default function EmergencyCallScreen({ navigation }) {
       const userStr = await AsyncStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : null;
 
+      // Get user location
+      let location = { latitude: 0, longitude: 0 };
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const position = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          location = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+        }
+      } catch (locError) {
+        console.log('Could not get location:', locError);
+      }
+
       // Load emergency numbers configured by admin
       const storedNumbers = await AsyncStorage.getItem('emergencyNumbers');
       let numbersToCall = [];
       
       if (storedNumbers) {
         const allNumbers = JSON.parse(storedNumbers);
-        // Only use enabled numbers
         numbersToCall = allNumbers.filter(num => num.enabled);
         setEmergencyNumbers(numbersToCall);
         console.log('Loaded emergency numbers:', numbersToCall.length);
       } else {
-        // Fallback to default numbers if admin hasn't configured any
         numbersToCall = [
           { name: 'Ambulance', number: '108', icon: 'ambulance' },
           { name: 'Police', number: '100', icon: 'police-badge' }
@@ -78,10 +96,7 @@ export default function EmergencyCallScreen({ navigation }) {
         console.log('Using default emergency numbers');
       }
 
-      // Get user location
-      const location = { latitude: 0, longitude: 0 }; // TODO: Get actual location
-
-      // Try to create emergency record, but continue even if it fails
+      // Try to create emergency record
       let emergencyIdValue = `emergency_${Date.now()}`;
       try {
         const response = await fetch(`${API_URL}/api/emergency/initiate`, {
@@ -107,41 +122,196 @@ export default function EmergencyCallScreen({ navigation }) {
 
       setEmergencyId(emergencyIdValue);
 
-      // Call emergency services configured by admin
+      // Step 1: Call emergency services
       updateCallSequenceStatus('Emergency Services', 'calling');
-      
-      // Call each emergency service number with delays
       numbersToCall.forEach((service, index) => {
         setTimeout(() => {
           console.log(`Calling ${service.name}: ${service.number}`);
           Linking.openURL(`tel:${service.number}`).catch(err => {
             console.error(`Failed to call ${service.name}:`, err);
           });
-        }, index * 2000); // 2 seconds between each call
+        }, index * 2000);
       });
 
-      // After all emergency services are called, call emergency contacts
-      const totalDelay = numbersToCall.length * 2000 + 2000;
       setTimeout(() => {
         updateCallSequenceStatus('Emergency Services', 'completed');
-        updateCallSequenceStatus('Emergency Contacts', 'calling');
-        callEmergencyContacts(user);
-      }, totalDelay);
+      }, numbersToCall.length * 2000);
 
-      // Start bot recording
-      setCallStatus('recording');
+      // Step 2: Use AI to call emergency contacts simultaneously
+      setTimeout(async () => {
+        updateCallSequenceStatus('AI Calling Contacts', 'calling');
+        await makeAICallsToContacts(user, location);
+      }, (numbersToCall.length * 2000) + 1000);
 
-      // Try to notify emergency contacts
-      try {
-        await notifyEmergencyContacts(emergencyIdValue);
-      } catch (notifyError) {
-        console.log('Could not notify contacts via API');
-      }
+      // Step 3: Send SMS alerts
+      setTimeout(async () => {
+        updateCallSequenceStatus('SMS Alerts', 'calling');
+        await sendSMSAlerts(user, location);
+      }, (numbersToCall.length * 2000) + 2000);
+
+      setCallStatus('calling');
 
     } catch (error) {
       console.error('Emergency initiation error:', error);
-      // Don't show alert, just continue with local functionality
-      setCallStatus('recording');
+      setCallStatus('calling');
+    }
+  };
+
+  const makeAICallsToContacts = async (user, location) => {
+    try {
+      // Load emergency contacts
+      let contacts = [];
+      const localContacts = await AsyncStorage.getItem('emergencyContacts');
+      if (localContacts) {
+        contacts = JSON.parse(localContacts);
+        console.log('Loaded emergency contacts:', contacts.length);
+      }
+
+      if (contacts.length === 0) {
+        console.log('No emergency contacts found');
+        updateCallSequenceStatus('AI Calling Contacts', 'completed');
+        return;
+      }
+
+      // Build situation description
+      const situation = `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${location.latitude}, ${location.longitude}. Immediate assistance required.`;
+      const context = 'Emergency contact who needs to provide immediate assistance';
+
+      // Initialize call status tracking
+      const initialStatus = contacts.map(contact => ({
+        name: contact.name,
+        phone: contact.phone,
+        status: 'initiating',
+        callSid: null
+      }));
+      setAiCallStatus(initialStatus);
+
+      // Make AI calls to all contacts simultaneously
+      const callPromises = contacts.map(async (contact, index) => {
+        try {
+          console.log(`Initiating AI call to ${contact.name} (${contact.phone})...`);
+          
+          // Update status to calling
+          setAiCallStatus(prev => prev.map((item, i) => 
+            i === index ? { ...item, status: 'calling' } : item
+          ));
+
+          const response = await fetch(`${API_URL}/api/agents/call`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: contact.phone,
+              situation,
+              context: `${context}. Contact name: ${contact.name}. Relationship: ${contact.relationship || 'Emergency contact'}`
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to call ${contact.name}`);
+          }
+
+          const data = await response.json();
+          console.log(`AI call initiated to ${contact.name}:`, data.callSid);
+
+          // Update status to connected
+          setAiCallStatus(prev => prev.map((item, i) => 
+            i === index ? { ...item, status: 'connected', callSid: data.callSid } : item
+          ));
+
+          return { success: true, contact: contact.name, callSid: data.callSid };
+        } catch (error) {
+          console.error(`Failed to call ${contact.name}:`, error);
+          
+          // Update status to failed
+          setAiCallStatus(prev => prev.map((item, i) => 
+            i === index ? { ...item, status: 'failed' } : item
+          ));
+
+          return { success: false, contact: contact.name, error: error.message };
+        }
+      });
+
+      // Wait for all calls to complete
+      const results = await Promise.all(callPromises);
+      
+      const successCount = results.filter(r => r.success).length;
+      const failedCount = results.filter(r => !r.success).length;
+
+      console.log(`AI Calls completed: ${successCount} successful, ${failedCount} failed`);
+      
+      updateCallSequenceStatus('AI Calling Contacts', 'completed');
+
+      // Show summary alert
+      setTimeout(() => {
+        Alert.alert(
+          'AI Calls Initiated',
+          `Successfully called ${successCount} of ${contacts.length} emergency contacts.\n\nAI agents are now speaking with your contacts to inform them of the emergency.`,
+          [{ text: 'OK' }]
+        );
+      }, 1000);
+
+    } catch (error) {
+      console.error('Failed to make AI calls:', error);
+      updateCallSequenceStatus('AI Calling Contacts', 'failed');
+      
+      Alert.alert(
+        'AI Calling Failed',
+        'Could not initiate AI calls. Please ensure the backend server is running and configured properly.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const sendSMSAlerts = async (user, location) => {
+    try {
+      // Load emergency contacts
+      let contacts = [];
+      const localContacts = await AsyncStorage.getItem('emergencyContacts');
+      if (localContacts) {
+        contacts = JSON.parse(localContacts);
+      }
+
+      if (contacts.length === 0) {
+        updateCallSequenceStatus('SMS Alerts', 'completed');
+        return;
+      }
+
+      const situation = `Emergency alert from ${user?.name || 'LifeLink user'}. Location: ${location.latitude}, ${location.longitude}. Immediate assistance required.`;
+      const context = 'Emergency contact who needs to provide immediate assistance';
+
+      // Prepare recipients for bulk SMS
+      const recipients = contacts.map(contact => ({
+        to: contact.phone,
+        recipientName: contact.name
+      }));
+
+      console.log(`Sending SMS to ${recipients.length} contacts...`);
+
+      const response = await fetch(`${API_URL}/api/agents/message/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipients,
+          situation,
+          context
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`SMS sent: ${data.sent.length} successful, ${data.failed.length} failed`);
+        updateCallSequenceStatus('SMS Alerts', 'completed');
+      } else {
+        throw new Error('Failed to send SMS');
+      }
+
+    } catch (error) {
+      console.error('Failed to send SMS alerts:', error);
+      updateCallSequenceStatus('SMS Alerts', 'failed');
     }
   };
 
@@ -151,82 +321,6 @@ export default function EmergencyCallScreen({ navigation }) {
         call.name === name ? { ...call, status } : call
       )
     );
-  };
-
-  const callEmergencyContacts = async (user) => {
-    try {
-      // Load emergency contacts from local storage first
-      let contacts = [];
-      const localContacts = await AsyncStorage.getItem('emergencyContacts');
-      if (localContacts) {
-        contacts = JSON.parse(localContacts);
-        console.log('Loaded emergency contacts from local storage:', contacts.length);
-      }
-
-      // Try to fetch from API as backup
-      if (contacts.length === 0) {
-        try {
-          const token = await AsyncStorage.getItem('token');
-          const response = await fetch(`${API_URL}/api/users/emergency-contacts`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            contacts = data.emergencyContacts || [];
-          }
-        } catch (apiError) {
-          console.log('Could not fetch contacts from API');
-        }
-      }
-
-      if (contacts.length === 0) {
-        updateCallSequenceStatus('Emergency Contacts', 'completed');
-        return;
-      }
-
-      // Call each emergency contact with a delay between calls
-      contacts.forEach((contact, index) => {
-        setTimeout(() => {
-          console.log(`Calling emergency contact: ${contact.name} - ${contact.phone}`);
-          Linking.openURL(`tel:${contact.phone}`).catch(err => {
-            console.error(`Failed to call ${contact.name}:`, err);
-          });
-        }, index * 2000); // 2 seconds between each call
-      });
-
-      // Mark as completed after all calls initiated
-      setTimeout(() => {
-        updateCallSequenceStatus('Emergency Contacts', 'completed');
-      }, contacts.length * 2000);
-
-    } catch (error) {
-      console.error('Failed to call emergency contacts:', error);
-      updateCallSequenceStatus('Emergency Contacts', 'completed');
-    }
-  };
-
-  const notifyEmergencyContacts = async (emergencyId) => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/emergency/notify-contacts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ emergencyId })
-      });
-      
-      if (!response.ok) {
-        throw new Error('API not available');
-      }
-    } catch (error) {
-      console.log('Could not notify contacts via API, continuing locally');
-    }
   };
 
   const endCall = async () => {
@@ -295,15 +389,15 @@ export default function EmergencyCallScreen({ navigation }) {
         </Animated.View>
 
         <Text style={styles.statusText}>
-          {callStatus === 'initiating' && 'Initiating emergency calls...'}
-          {callStatus === 'recording' && 'Emergency calls in progress'}
+          {callStatus === 'initiating' && 'Initiating emergency response...'}
+          {callStatus === 'calling' && 'AI agents calling your emergency contacts'}
           {callStatus === 'completed' && 'Emergency session ended'}
         </Text>
 
         <Text style={styles.timer}>{formatTime(timer)}</Text>
 
         <View style={styles.infoCard}>
-          <Text style={styles.infoCardTitle}>Emergency Call Sequence</Text>
+          <Text style={styles.infoCardTitle}>Emergency Response Status</Text>
           
           {/* Show emergency service numbers being called */}
           {emergencyNumbers.length > 0 && (
@@ -319,38 +413,71 @@ export default function EmergencyCallScreen({ navigation }) {
           )}
           
           {/* Call sequence status */}
-          {callSequence.map((call, index) => (
-            <View key={index} style={styles.infoRow}>
-              <MaterialCommunityIcons 
-                name={
-                  call.status === 'pending' ? 'clock-outline' :
-                  call.status === 'calling' ? 'phone-in-talk' :
-                  call.status === 'active' ? 'record-circle' :
-                  call.status === 'completed' ? 'check-circle' :
-                  'alert-circle'
-                }
-                size={20} 
-                color={
-                  call.status === 'pending' ? '#64748b' :
-                  call.status === 'calling' ? '#fbbf24' :
-                  call.status === 'active' ? '#ef4444' :
-                  call.status === 'completed' ? '#10b981' :
-                  '#ef4444'
-                }
-              />
-              <Text style={[
-                styles.infoText,
-                call.status === 'calling' && styles.infoTextActive,
-                call.status === 'completed' && styles.infoTextCompleted
-              ]}>
-                {call.name}
-                {call.status === 'calling' && ' - Calling...'}
-                {call.status === 'active' && ' - Active'}
-                {call.status === 'completed' && ' - Connected'}
-                {call.status === 'failed' && ' - Failed'}
-              </Text>
-            </View>
-          ))}
+          <ScrollView style={styles.sequenceScroll} nestedScrollEnabled>
+            {callSequence.map((call, index) => (
+              <View key={index} style={styles.infoRow}>
+                <MaterialCommunityIcons 
+                  name={
+                    call.status === 'pending' ? 'clock-outline' :
+                    call.status === 'calling' ? 'phone-in-talk' :
+                    call.status === 'completed' ? 'check-circle' :
+                    call.status === 'failed' ? 'alert-circle' :
+                    'alert-circle'
+                  }
+                  size={20} 
+                  color={
+                    call.status === 'pending' ? '#64748b' :
+                    call.status === 'calling' ? '#fbbf24' :
+                    call.status === 'completed' ? '#10b981' :
+                    '#ef4444'
+                  }
+                />
+                <Text style={[
+                  styles.infoText,
+                  call.status === 'calling' && styles.infoTextActive,
+                  call.status === 'completed' && styles.infoTextCompleted
+                ]}>
+                  {call.name}
+                  {call.status === 'calling' && ' - In Progress...'}
+                  {call.status === 'completed' && ' - Completed'}
+                  {call.status === 'failed' && ' - Failed'}
+                </Text>
+              </View>
+            ))}
+
+            {/* Show individual AI call status */}
+            {aiCallStatus.length > 0 && (
+              <View style={styles.aiCallsSection}>
+                <Text style={styles.sectionLabel}>AI Calls to Contacts:</Text>
+                {aiCallStatus.map((call, index) => (
+                  <View key={index} style={styles.aiCallRow}>
+                    <MaterialCommunityIcons 
+                      name={
+                        call.status === 'initiating' ? 'clock-outline' :
+                        call.status === 'calling' ? 'robot' :
+                        call.status === 'connected' ? 'phone-check' :
+                        'alert-circle'
+                      }
+                      size={16} 
+                      color={
+                        call.status === 'initiating' ? '#64748b' :
+                        call.status === 'calling' ? '#3b82f6' :
+                        call.status === 'connected' ? '#10b981' :
+                        '#ef4444'
+                      }
+                    />
+                    <Text style={styles.aiCallText}>
+                      {call.name} ({call.phone})
+                      {call.status === 'initiating' && ' - Initiating...'}
+                      {call.status === 'calling' && ' - Calling...'}
+                      {call.status === 'connected' && ' - AI Speaking'}
+                      {call.status === 'failed' && ' - Failed'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
         </View>
 
         <View style={styles.actions}>
@@ -376,7 +503,7 @@ export default function EmergencyCallScreen({ navigation }) {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          Call recording will be sent to your emergency contacts
+          AI agents are calling your emergency contacts simultaneously to save time
         </Text>
       </View>
     </SafeAreaView>
@@ -451,12 +578,16 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     width: '100%',
-    backgroundcolor: '#0f172a',
+    backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
     gap: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    maxHeight: 300,
+  },
+  sequenceScroll: {
+    maxHeight: 200,
   },
   infoRow: {
     flexDirection: 'row',
@@ -536,7 +667,24 @@ const styles = StyleSheet.create({
   },
   serviceText: {
     fontSize: 13,
-    color: '#cbd5e1',
+    color: '#64748b',
     fontWeight: '500',
+  },
+  aiCallsSection: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  aiCallRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  aiCallText: {
+    fontSize: 12,
+    color: '#475569',
+    flex: 1,
   },
 });

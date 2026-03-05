@@ -23,6 +23,7 @@ app.use('/api/verification', require('./routes/verification'));
 app.use('/api/ambulances', require('./routes/ambulances'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/emergency', require('./routes/emergency'));
+app.use('/api/agents', require('./routes/agents'));
 
 // Health check
 app.get('/health', (req, res) => {

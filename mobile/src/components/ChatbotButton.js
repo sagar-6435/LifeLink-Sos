@@ -10,8 +10,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { API_URL } from '../config/api';
 
 export default function ChatbotButton() {
   const [isOpen, setIsOpen] = useState(false);
@@ -25,6 +27,8 @@ export default function ChatbotButton() {
   ]);
   const [inputText, setInputText] = useState('');
   const [pulseAnim] = useState(new Animated.Value(1));
+  const [isLoading, setIsLoading] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState([]);
 
   // Pulse animation for the button
   React.useEffect(() => {
@@ -46,7 +50,7 @@ export default function ChatbotButton() {
     return () => pulse.stop();
   }, []);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (inputText.trim() === '') return;
 
     // Add user message
@@ -57,11 +61,63 @@ export default function ChatbotButton() {
       timestamp: new Date(),
     };
     setMessages([...messages, userMessage]);
+    
+    // Add to conversation history
+    const newHistory = [...conversationHistory, { role: 'user', content: inputText }];
+    setConversationHistory(newHistory);
+    
+    const currentInput = inputText;
     setInputText('');
+    setIsLoading(true);
 
-    // Simulate bot response
-    setTimeout(() => {
-      const botResponse = getBotResponse(inputText);
+    try {
+      // Call the AI agent API
+      const response = await fetch(`${API_URL}/api/agents/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: currentInput,
+          history: newHistory,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response from AI agent');
+      }
+
+      const data = await response.json();
+      
+      // Add bot response
+      const botMessage = {
+        id: messages.length + 2,
+        text: data.reply || 'I apologize, I couldn\'t process that. Please try again.',
+        sender: 'bot',
+        timestamp: new Date(),
+        emergencyTriggered: data.emergencyTriggered,
+      };
+      
+      setMessages((prev) => [...prev, botMessage]);
+      
+      // Update conversation history
+      setConversationHistory([...newHistory, { role: 'assistant', content: data.reply }]);
+      
+      // Show alert if emergency was triggered
+      if (data.emergencyTriggered) {
+        setTimeout(() => {
+          Alert.alert(
+            'Emergency Alert Triggered',
+            'Emergency services have been notified. Help is on the way.',
+            [{ text: 'OK' }]
+          );
+        }, 500);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      
+      // Fallback to local responses
+      const botResponse = getBotResponse(currentInput);
       const botMessage = {
         id: messages.length + 2,
         text: botResponse,
@@ -69,7 +125,9 @@ export default function ChatbotButton() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, botMessage]);
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getBotResponse = (userInput) => {
@@ -147,6 +205,12 @@ export default function ChatbotButton() {
                     message.sender === 'user' ? styles.userBubble : styles.botBubble,
                   ]}
                 >
+                  {message.emergencyTriggered && (
+                    <View style={styles.emergencyBadge}>
+                      <MaterialCommunityIcons name="alert-circle" size={14} color="#fff" />
+                      <Text style={styles.emergencyBadgeText}>Emergency Alert Sent</Text>
+                    </View>
+                  )}
                   <Text
                     style={[
                       styles.messageText,
@@ -168,6 +232,12 @@ export default function ChatbotButton() {
                   </Text>
                 </View>
               ))}
+              {isLoading && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                  <Text style={styles.loadingText}>Thinking...</Text>
+                </View>
+              )}
             </ScrollView>
 
             {/* Quick Actions */}
@@ -388,5 +458,35 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: '#e2e8f0',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#f1f5f9',
+    padding: 12,
+    borderRadius: 16,
+    gap: 8,
+    marginBottom: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontStyle: 'italic',
+  },
+  emergencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    marginBottom: 8,
+  },
+  emergencyBadgeText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
   },
 });
